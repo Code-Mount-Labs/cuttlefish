@@ -1,0 +1,28 @@
+[package]
+name = "orchestrator-node"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+orchestrator-prompts.workspace = true
+orchestrator-protocol.workspace = true
+orchestrator-agents.workspace = true
+orchestrator-domain.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+tokio = { workspace = true, features = ["time", "io-util", "io-std", "sync", "process", "signal"] }
+sqlx.workspace = true
+clap.workspace = true
+reqwest.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+axum.workspace = true
+
+[lints]
+workspace = true

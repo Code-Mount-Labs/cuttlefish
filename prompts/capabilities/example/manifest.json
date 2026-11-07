@@ -1,0 +1,9 @@
+{
+  "release_id": "00000000-0000-0000-0000-000000000300",
+  "name": "Example capability recipe v1 (template only)",
+  "capability": "example.review",
+  "supersedes": null,
+  "recipe_file": "recipe.md",
+  "instructions_file": "instructions.md",
+  "evaluation_file": "evaluation.md"
+}

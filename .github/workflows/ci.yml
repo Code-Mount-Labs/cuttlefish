@@ -1,0 +1,71 @@
+name: Rust checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install pinned toolchain
+        run: rustup toolchain install 1.96.1 --profile minimal --component clippy,rustfmt
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Unit and integration tests
+        run: cargo test --workspace --all-targets --exclude orchestrator-coordinator --locked
+      - name: Documentation tests
+        run: cargo test --workspace --doc --locked
+      - name: Build documentation
+        run: cargo doc --workspace --no-deps --locked
+
+  coverage:
+    name: Full source coverage
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: orchestrator_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d orchestrator_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      COORDINATOR_TEST_DATABASE_URL: postgresql://postgres:test_password@127.0.0.1:5432/orchestrator_test
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install pinned toolchain and coverage driver
+        run: |
+          rustup toolchain install 1.96.1 --profile minimal --component llvm-tools-preview
+          cargo install cargo-llvm-cov --version 0.9.1 --locked
+      - name: Enforce 100 percent line, function, and region coverage
+        run: cargo coverage --locked
+      - name: Render report
+        if: always()
+        run: cargo llvm-cov report --html --output-dir target/coverage --ignore-filename-regex /tests/
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage
+          path: target/coverage
+          if-no-files-found: warn

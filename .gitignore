@@ -1,0 +1,13 @@
+/target/
+/.node/
+/.tools/
+/.cache/
+*.profraw
+*.profdata
+.DS_Store
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+/private/

@@ -1,0 +1,30 @@
+[package]
+name = "orchestrator-coordinator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+orchestrator-prompts.workspace = true
+orchestrator-domain.workspace = true
+orchestrator-protocol.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+sqlx = { workspace = true, features = ["postgres", "uuid", "tls-rustls-ring-webpki"] }
+tokio = { workspace = true, features = ["net", "signal", "time", "rt-multi-thread"] }
+clap = { workspace = true, features = ["env"] }
+reqwest.workspace = true
+
+[dev-dependencies]
+orchestrator-agents.workspace = true
+tempfile.workspace = true
+tower.workspace = true
+orchestrator-node = { path = "../node" }
+
+[lints]
+workspace = true

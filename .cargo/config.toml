@@ -1,0 +1,2 @@
+[alias]
+coverage = "llvm-cov --workspace --all-targets --fail-under-lines 100 --fail-under-functions 100 --fail-under-regions 100 --ignore-filename-regex /tests/ --show-missing-lines"

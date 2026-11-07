@@ -135,11 +135,24 @@ async fn recovery_reports_backend_failure_and_invalid_router_changes_stop_the_ag
         })
         .await
         .expect("select");
+    let recovery = tokio::spawn(recover(machine.clone()));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while machine.status().await.expect("status").state != "failed" {
+            tokio::task::yield_now().await;
+        }
+        // The stored state can become visible before the recovery future resumes.
+        // Wait for its transaction guard to be released so cancellation cannot
+        // cut off error reporting immediately after the journal commit.
+        drop(machine.changes.lock().await);
+    })
+    .await
+    .expect("recovery completes despite the backend failure");
     assert!(
-        tokio::time::timeout(Duration::from_millis(30), recover(machine.clone()))
-            .await
-            .is_err()
+        !recovery.is_finished(),
+        "recovery continues serving retries"
     );
+    recovery.abort();
+    assert!(recovery.await.expect_err("cancelled loop").is_cancelled());
     assert_eq!(machine.status().await.expect("status").state, "failed");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await

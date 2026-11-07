@@ -155,15 +155,25 @@ impl Store {
         tx.commit().await?;
         Ok(())
     }
-    /// Load durable intents. Repeated delivery reuses the original routing command.
+    /// Load bounded run and session-close intents. Completed runs release their worker.
+    /// Both intents retain their identities across retries and router restarts.
     /// # Errors
     /// Reports authentication or storage failures.
     pub async fn pending_workflows(&self, token: &NodeToken) -> Result<Vec<RouteRequest>, Error> {
         let (group, _) = self.identity(token).await?;
-        let rows: Vec<Json<RouteRequest>> = sqlx::query_scalar("SELECT request FROM workflow_runs WHERE group_id=$1 AND NOT accepted ORDER BY created_ms LIMIT 20").bind(Uuid::from(group)).fetch_all(&self.pool).await?;
+        let rows: Vec<Json<RouteRequest>> = sqlx::query_scalar("SELECT request FROM (
+            (SELECT jsonb_build_object('command_id',r.cleanup_command_id,'thread_id',r.request->'thread_id','action',jsonb_build_object('type','cancel')) AS request, 0 AS priority, r.created_ms
+             FROM workflow_runs r JOIN dispatches d ON d.group_id=r.group_id AND d.command_id=r.id
+             JOIN thread_bindings t ON t.group_id=r.group_id AND t.thread_id=(r.request->>'thread_id')::uuid
+             WHERE r.group_id=$1 AND r.accepted AND NOT r.cleanup_accepted AND d.state='completed' AND NOT t.stopped
+             ORDER BY r.created_ms LIMIT 20)
+            UNION ALL
+            (SELECT request, 1 AS priority, created_ms FROM workflow_runs WHERE group_id=$1 AND NOT accepted ORDER BY created_ms LIMIT 20)
+        ) intents ORDER BY priority,created_ms").bind(Uuid::from(group)).fetch_all(&self.pool).await?;
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
-    /// Record submission acknowledgement, retaining failed intents for retry.
+    /// Record run or session-close submission, retaining failed intents for retry.
+    /// A late failure cannot undo a successful acknowledgement.
     /// # Errors
     /// Reports authentication or storage failures.
     pub async fn acknowledge_workflow(
@@ -173,7 +183,11 @@ impl Store {
         accepted: bool,
     ) -> Result<(), Error> {
         let (group, _) = self.identity(token).await?;
-        sqlx::query("UPDATE workflow_runs SET accepted=$3,error=CASE WHEN $3 THEN NULL ELSE 'Waiting for an available agent or router connection' END WHERE group_id=$1 AND id=$2 AND NOT accepted").bind(Uuid::from(group)).bind(id).bind(accepted).execute(&self.pool).await?;
+        sqlx::query("UPDATE workflow_runs SET
+            accepted=CASE WHEN id=$2 THEN $3 ELSE accepted END,
+            cleanup_accepted=CASE WHEN cleanup_command_id=$2 THEN $3 ELSE cleanup_accepted END,
+            error=CASE WHEN id=$2 THEN CASE WHEN $3 THEN NULL ELSE 'Waiting for an available agent or router connection' END ELSE error END
+            WHERE group_id=$1 AND ((id=$2 AND NOT accepted) OR (cleanup_command_id=$2 AND NOT cleanup_accepted))").bind(Uuid::from(group)).bind(id).bind(accepted).execute(&self.pool).await?;
         Ok(())
     }
 }

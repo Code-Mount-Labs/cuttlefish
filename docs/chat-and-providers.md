@@ -1,6 +1,6 @@
 # Chat, files, and local providers
 
-The `v0.2.0-alpha.3` release includes the chat surface and real local provider adapters. The release gate remains 100%
+The `v0.2.0-alpha.4` release includes the chat surface and real local provider adapters. The release gate remains 100%
 line, function, and region coverage; passing a live demo does not bypass that gate.
 
 ## Setup
@@ -133,3 +133,5 @@ BROWSER_BIN=/absolute/path/to/chromium \
 It checks upload bytes, exact retry identity across a reload, safe Markdown,
 responsive layout, and sign-out cleanup. Real provider and relay checks remain
 separate because they use subscription access and remote services.
+
+Workflow runs are single-use sessions. After a run finishes, a durable close command releases its worker capacity while retaining the conversation and artifacts. Run the workflow again to start a fresh session. Close-command delivery survives router restarts and never invokes the LLM.

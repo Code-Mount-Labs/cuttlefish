@@ -506,3 +506,150 @@ async fn concurrent_run_identity_cannot_be_reused_for_a_different_workflow() {
     assert_ne!(a.is_ok(), b.is_ok());
     f.close().await;
 }
+
+#[tokio::test]
+async fn completed_workflows_release_sessions_with_durable_idempotent_cleanup() {
+    use crate::routing::RoutingService;
+    use crate::tests::{
+        data,
+        routing::{Selection, finish, poll},
+    };
+    use orchestrator_protocol::{capabilities::Capability, routing::RouteAction};
+    use std::sync::Arc;
+
+    let (f, token) = prepared().await;
+    let mut report = data::report();
+    report.events.clear();
+    report
+        .profile
+        .capabilities
+        .insert(Capability::local_provider(LocalProvider::Codex));
+    f.store
+        .sync(&token, &report)
+        .await
+        .expect("provider capability");
+    let selector = Arc::new(Selection::default());
+    let service = RoutingService::new(f.store.clone(), selector.clone());
+    let pending = f.store.pending_workflows(&token).await.expect("queued run");
+    let run = service
+        .submit(&token, pending[0].clone())
+        .await
+        .expect("dispatch run");
+    f.store
+        .acknowledge_workflow(&token, Uuid::from(run.request.command_id), true)
+        .await
+        .expect("accepted");
+    assert!(
+        f.store
+            .pending_workflows(&token)
+            .await
+            .expect("running")
+            .is_empty()
+    );
+    f.store
+        .poll_dispatch(&token, &poll())
+        .await
+        .expect("claim run");
+    finish(&f, &token, &run, 1).await;
+    let cleanup = f
+        .store
+        .pending_workflows(&token)
+        .await
+        .expect("cleanup intent");
+    assert_eq!(cleanup.len(), 1);
+    assert_eq!(cleanup[0].thread_id, run.request.thread_id);
+    assert_eq!(cleanup[0].action, RouteAction::Cancel {});
+    assert_ne!(cleanup[0].command_id, run.request.command_id);
+    f.store
+        .acknowledge_workflow(&token, Uuid::from(cleanup[0].command_id), false)
+        .await
+        .expect("retry cleanup");
+    verify_cleanup_restart(&f, &token, &run, cleanup).await;
+    f.close().await;
+}
+
+async fn verify_cleanup_restart(
+    f: &Fixture,
+    token: &orchestrator_protocol::sync::NodeToken,
+    run: &orchestrator_protocol::routing::DispatchView,
+    cleanup: Vec<orchestrator_protocol::routing::RouteRequest>,
+) {
+    use crate::tests::routing::{finish, poll};
+    use crate::{routing::RoutingService, selector::Unconfigured};
+    use std::sync::Arc;
+    let reopened = Store::open(&f.url).await.expect("restart before cleanup");
+    assert_eq!(
+        reopened
+            .pending_workflows(token)
+            .await
+            .expect("durable cleanup"),
+        cleanup
+    );
+    let outsider = "f".repeat(64).try_into().expect("other token");
+    reopened
+        .enroll(id(90), id(91), &outsider)
+        .await
+        .expect("other group");
+    assert!(
+        reopened
+            .pending_workflows(&outsider)
+            .await
+            .expect("isolation")
+            .is_empty()
+    );
+    reopened
+        .acknowledge_workflow(&outsider, Uuid::from(cleanup[0].command_id), true)
+        .await
+        .expect("scoped ack");
+    assert_eq!(
+        reopened
+            .pending_workflows(token)
+            .await
+            .expect("still pending"),
+        cleanup
+    );
+    let cleanup_service = RoutingService::new(reopened.clone(), Arc::new(Unconfigured));
+    let stopped = cleanup_service
+        .submit(token, cleanup[0].clone())
+        .await
+        .expect("close exact session");
+    assert_eq!(stopped.command.target, run.command.target);
+    assert_eq!(
+        cleanup_service
+            .submit(token, cleanup[0].clone())
+            .await
+            .expect("lost ack retry"),
+        stopped
+    );
+    reopened
+        .acknowledge_workflow(token, Uuid::from(cleanup[0].command_id), true)
+        .await
+        .expect("cleanup accepted");
+    reopened
+        .acknowledge_workflow(token, Uuid::from(cleanup[0].command_id), false)
+        .await
+        .expect("late failure ignored");
+    assert!(
+        reopened
+            .pending_workflows(token)
+            .await
+            .expect("no duplicate")
+            .is_empty()
+    );
+    reopened
+        .poll_dispatch(token, &poll())
+        .await
+        .expect("claim cleanup");
+    finish(f, token, &stopped, 2).await;
+    assert!(
+        reopened
+            .pending_workflows(token)
+            .await
+            .expect("released")
+            .is_empty()
+    );
+    let data = reopened.automations(token).await.expect("result retained");
+    assert_eq!(data["runs"][0]["state"], "completed");
+    assert!(data["runs"][0]["error"].is_null());
+    reopened.close().await;
+}

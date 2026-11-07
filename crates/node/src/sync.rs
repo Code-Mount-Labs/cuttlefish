@@ -25,7 +25,10 @@ impl Remote {
     ) -> Result<(), NodeError> {
         let poll = runtime.journal().dispatch_poll().await?;
         let mut endpoint = self.endpoint.clone();
-        endpoint.set_path("/v1/dispatch/poll");
+        endpoint.set_path(&format!(
+            "{}/v1/dispatch/poll",
+            self.endpoint.path().trim_end_matches("/v1/sync")
+        ));
         let mut response = self
             .client
             .post(endpoint)
@@ -142,28 +145,12 @@ impl Remote {
         token: &NodeToken,
         builder: ClientBuilder,
     ) -> Result<Self, NodeError> {
-        let mut endpoint =
-            Url::parse(origin).map_err(|_| NodeError::Rejected("invalid coordinator URL"))?;
-        let loopback = endpoint
-            .host_str()
-            .and_then(|host| {
-                host.trim_matches(['[', ']'])
-                    .parse::<std::net::IpAddr>()
-                    .ok()
-            })
-            .is_some_and(|ip| ip.is_loopback());
-        if !(endpoint.scheme() == "https" || endpoint.scheme() == "http" && loopback)
-            || !endpoint.username().is_empty()
-            || endpoint.password().is_some()
-            || endpoint.query().is_some()
-            || endpoint.fragment().is_some()
-            || endpoint.path() != "/"
-        {
-            return Err(NodeError::Rejected(
-                "coordinator must be an HTTPS origin (or loopback HTTP)",
-            ));
-        }
-        endpoint.set_path("/v1/sync");
+        let mut endpoint = orchestrator_protocol::remote::endpoint_url(origin)
+            .ok_or(NodeError::Rejected("invalid coordinator endpoint"))?;
+        endpoint.set_path(&format!(
+            "{}/v1/sync",
+            endpoint.path().trim_end_matches('/')
+        ));
         let client = builder
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(3))

@@ -42,6 +42,8 @@ pub fn router(machine: Machine) -> Router {
             }),
         )
         .route("/api/local/status", get(status))
+        .route("/api/local/remote", get(remote_status).post(remote_select))
+        .route("/api/local/relay-proof", post(remote_proof))
         .route("/api/node/enroll", post(enroll))
         .route("/api/local/setup", post(setup))
         .route("/api/local/login", post(login))
@@ -69,7 +71,13 @@ async fn headers(mut response: Response) -> Response {
 async fn origin(machine: &Machine, headers: &HeaderMap) -> Result<(), Error> {
     let public = machine.identity().await?.public_origin;
     let values: Vec<_> = headers.get_all(header::ORIGIN).iter().collect();
-    if values.len() != 1 || values[0].to_str().ok() != Some(public.as_str()) {
+    let remote = machine.remote_origin().await?;
+    if values.len() != 1
+        || !(values[0].to_str().ok() == Some(public.as_str())
+            || remote
+                .as_deref()
+                .is_some_and(|remote| values[0].to_str().ok() == Some(remote)))
+    {
         return Err(Error::Unauthorized);
     }
     Ok(())
@@ -158,7 +166,7 @@ async fn configuration(
     authorize(&machine, &headers, false).await?;
     let identity = machine.identity().await?;
     Ok(Json(
-        json!({"group_id":identity.registration.group_id,"installation_id":identity.registration.installation_id,"name":identity.registration.name,"role":identity.registration.role,"database":machine.status().await?,"model":machine.model_status().await?}),
+        json!({"group_id":identity.registration.group_id,"installation_id":identity.registration.installation_id,"name":identity.registration.name,"role":identity.registration.role,"database":machine.status().await?,"model":machine.model_status().await?,"remote":machine.remote_status().await?}),
     ))
 }
 async fn database(
@@ -257,3 +265,25 @@ async fn enroll(
 #[cfg(test)]
 #[path = "../tests/internal/web_faults.rs"]
 mod tests;
+
+async fn remote_status(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+) -> Result<Json<crate::remote::RemoteStatus>, Error> {
+    authorize(&machine, &headers, false).await?;
+    Ok(Json(machine.remote_status().await?))
+}
+async fn remote_select(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+    Json(choice): Json<orchestrator_protocol::remote::RemoteChoice>,
+) -> Result<(StatusCode, Json<crate::remote::RemoteStatus>), Error> {
+    authorize(&machine, &headers, true).await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(machine.select_remote(choice).await?),
+    ))
+}
+async fn remote_proof(State(machine): State<Machine>) -> Result<Json<serde_json::Value>, Error> {
+    Ok(Json(machine.remote_proof().await?))
+}

@@ -222,3 +222,94 @@ async fn registration_never_claims_success_when_router_address_cannot_be_saved()
     machine.close().await;
     task.abort();
 }
+
+#[tokio::test]
+async fn agent_refreshes_router_address_and_retains_it_during_directory_outage() {
+    let reply = Arc::new(Mutex::new("https://router.test".to_owned()));
+    let shared = reply.clone();
+    let app = Router::new()
+        .route(
+            "/api/v1/installations/heartbeat",
+            post(|| async { Json(json!({"ok":true})) }),
+        )
+        .route(
+            "/api/v1/installations/router-address",
+            post(move || {
+                let shared = shared.clone();
+                async move { Json(json!({"router_url":shared.lock().expect("lock").clone()})) }
+            }),
+        );
+    let (origin, task) = server(app).await;
+    let dir = tempfile::tempdir().expect("directory");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    let mut identity = registration();
+    identity.role = InstallationRole::Agent;
+    identity.router_url = None;
+    machine
+        .initialize(&identity, &origin, "http://127.0.0.1:8080")
+        .await
+        .expect("identity");
+    machine
+        .save_setting("registered", "true")
+        .await
+        .expect("registered");
+    sqlx::raw_sql("UPDATE remote_access SET state='ready'")
+        .execute(&machine.pool)
+        .await
+        .expect("ready remote");
+    machine.advertise(true).await.expect("refresh");
+    assert_eq!(
+        machine.router_origin().await.expect("cached"),
+        "https://router.test"
+    );
+    *reply.lock().expect("lock") = "invalid".into();
+    machine
+        .advertise(true)
+        .await
+        .expect("invalid reply ignored");
+    assert_eq!(
+        machine.router_origin().await.expect("cached"),
+        "https://router.test"
+    );
+    *reply.lock().expect("lock") = "https://router-new.test".into();
+    sqlx::raw_sql("CREATE TRIGGER fail BEFORE INSERT ON local_settings BEGIN SELECT RAISE(ABORT,'write failure'); END").execute(&machine.pool).await.expect("fault");
+    assert!(machine.advertise(true).await.is_err());
+    task.abort();
+    assert!(machine.advertise(true).await.is_err());
+    assert_eq!(
+        machine.router_origin().await.expect("cached"),
+        "https://router.test"
+    );
+    sqlx::raw_sql("DROP TABLE remote_access")
+        .execute(&machine.pool)
+        .await
+        .expect("fault");
+    assert!(machine.advertise(true).await.is_err());
+    sqlx::raw_sql("DROP TABLE installation")
+        .execute(&machine.pool)
+        .await
+        .expect("fault");
+    assert!(machine.router_origin().await.is_err());
+    machine.close().await;
+}
+
+#[tokio::test]
+async fn co_located_router_reports_missing_local_address_storage() {
+    let dir = tempfile::tempdir().expect("directory");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    initialize(&machine).await;
+    machine
+        .save_setting("router_origin", "https://router.test")
+        .await
+        .expect("registered");
+    sqlx::raw_sql("DROP TABLE remote_access")
+        .execute(&machine.pool)
+        .await
+        .expect("fault");
+    assert!(machine.router_origin().await.is_err());
+    machine.close().await;
+}

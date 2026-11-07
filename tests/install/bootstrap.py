@@ -7,6 +7,7 @@ installation, executable smoke checks, and repeat installation run unmodified.
 import hashlib
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,7 @@ import tempfile
 
 
 def exercise(archive, installer, destination):
+    version = re.fullmatch(r"cuttlefish-(v.+)-(?:aarch64|x86_64)-.+\.tar\.gz", archive.name)[1]
     with tempfile.TemporaryDirectory(prefix="cuttlefish-bootstrap-") as folder:
         fixture = pathlib.Path(folder)
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
@@ -26,7 +28,7 @@ def exercise(archive, installer, destination):
         downloader.write_text("#!" + sys.executable + "\n" + '''
 import os,pathlib,shutil,sys
 args=sys.argv[1:]
-base="https://github.com/Code-Mount-Labs/cuttlefish/releases/download/v0.2.0-alpha.1/"
+base="https://github.com/Code-Mount-Labs/cuttlefish/releases/download/"+os.environ["FIXTURE_VERSION"]+"/"
 url=next(value for value in args if value.startswith("https://"))
 assert url.startswith(base), "unexpected download origin"
 name=url[len(base):]
@@ -36,7 +38,7 @@ shutil.copyfile(pathlib.Path(os.environ["FIXTURE_ROOT"])/name,args[args.index("-
         downloader.chmod(0o755)
         env = dict(os.environ, PATH=str(bin_dir) + os.pathsep + os.environ["PATH"],
                    CUTTLEFISH_INSTALL_DIR=str(destination), CUTTLEFISH_NO_SETUP="1",
-                   FIXTURE_ROOT=str(fixture), FIXTURE_ARCHIVE=archive.name)
+                   FIXTURE_VERSION=version, FIXTURE_ROOT=str(fixture), FIXTURE_ARCHIVE=archive.name)
         for invalid in ["0" * 64, "not-a-checksum"]:
             manifest.write_text(f"{invalid}  {archive.name}\n")
             rejected = subprocess.run(["sh", str(installer)], env=env, capture_output=True)

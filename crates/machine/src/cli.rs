@@ -138,12 +138,20 @@ async fn setup(
         .ok_or(Error::Invalid("invalid_role_choice"))?;
     let name = machine_name(ask(input, output, "Machine name", Some("My machine"))?)?;
     let default_origin = format!("http://127.0.0.1:{}", listen.port());
-    let public_origin = validate_origin(&ask(
+    let answer = ask(
         input,
         output,
-        "Dashboard/router address (HTTPS for remote access)",
-        Some(&default_origin),
-    )?)?;
+        "Remote access: local, managed, or existing HTTPS address",
+        Some("local"),
+    )?;
+    let choice = match answer.as_str() {
+        "local" => orchestrator_protocol::remote::RemoteChoice::Local {},
+        "managed" => orchestrator_protocol::remote::RemoteChoice::Managed {},
+        value => orchestrator_protocol::remote::RemoteChoice::Existing {
+            origin: validate_origin(value)?,
+        },
+    };
+    let public_origin = default_origin;
     let registration = Registration {
         group_id: group,
         installation_id: InstallationId::random(),
@@ -156,6 +164,13 @@ async fn setup(
     machine
         .initialize(&registration, &platform, &public_origin)
         .await?;
+    machine.set_local_endpoint(&public_origin).await?;
+    if !matches!(
+        choice,
+        orchestrator_protocol::remote::RemoteChoice::Local {}
+    ) {
+        machine.select_remote(choice).await?;
+    }
     if machine.register().await.is_err() {
         writeln!(
             output,

@@ -61,6 +61,16 @@ async fn deployed_process_serves_health_and_shuts_down_gracefully() {
             .status
             .success()
     );
+    assert!(
+        !Command::new(BINARY)
+            .args(args)
+            .args(["--relay-origin", "https://relay.test"])
+            .output()
+            .await
+            .expect("incomplete relay configuration")
+            .status
+            .success()
+    );
     drop(listener);
     let mut child = Command::new(BINARY)
         .args(args)

@@ -22,6 +22,7 @@ use uuid::Uuid;
 /// live in `PostgreSQL`; restarting a web replica never changes router ownership.
 pub fn router(platform: Platform) -> Router {
     Router::new()
+        .merge(crate::relay::web::routes())
         .route(
             "/",
             get(|| async { Html(include_str!("../../../web/index.html")) }),
@@ -66,13 +67,15 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/v1/installations", post(enroll))
         .route("/api/v1/installations/self", get(installation))
         .route("/api/v1/installations/heartbeat", post(heartbeat))
+        .route("/api/v1/installations/address", post(update_address))
+        .route("/api/v1/installations/router-address", post(router_address))
         .route("/api/v1/router/authorize-agent", post(authorize_agent))
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(axum::middleware::map_response(security_headers))
         .with_state(platform)
 }
 
-async fn security_headers(mut response: Response) -> Response {
+pub(crate) async fn security_headers(mut response: Response) -> Response {
     let headers = response.headers_mut();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(header::CONTENT_SECURITY_POLICY,HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"));
@@ -98,7 +101,7 @@ fn origin(platform: &Platform, headers: &HeaderMap, required: bool) -> Result<()
     Ok(())
 }
 
-fn token(headers: &HeaderMap) -> Result<NodeToken, Error> {
+pub(crate) fn token(headers: &HeaderMap) -> Result<NodeToken, Error> {
     let mut tokens = Vec::new();
     for value in headers.get_all(header::AUTHORIZATION) {
         tokens.push(
@@ -287,10 +290,29 @@ impl IntoResponse for Error {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::Limited => StatusCode::TOO_MANY_REQUESTS,
-            Self::Database(_) | Self::Migration(_) | Self::Worker(_) | Self::Password => {
-                StatusCode::SERVICE_UNAVAILABLE
-            }
+            Self::Transport(_)
+            | Self::Database(_)
+            | Self::Migration(_)
+            | Self::Worker(_)
+            | Self::Password => StatusCode::SERVICE_UNAVAILABLE,
         };
         (status, Json(json!({"error":self.to_string()}))).into_response()
     }
+}
+
+async fn update_address(
+    State(platform): State<Platform>,
+    headers: HeaderMap,
+    Json(input): Json<orchestrator_protocol::remote::AddressUpdate>,
+) -> Result<Json<serde_json::Value>, Error> {
+    platform.update_address(&token(&headers)?, &input).await?;
+    Ok(Json(json!({"ok":true})))
+}
+async fn router_address(
+    State(platform): State<Platform>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, Error> {
+    Ok(Json(
+        json!({"router_url":platform.router_address(&token(&headers)?).await?}),
+    ))
 }

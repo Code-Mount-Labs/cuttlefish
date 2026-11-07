@@ -537,3 +537,41 @@ async fn serving_an_empty_state_directory_requires_setup() {
         Err(Error::Invalid("installation_not_initialized"))
     ));
 }
+
+#[tokio::test]
+async fn setup_persists_managed_choice_and_reports_journal_failures() {
+    let (origin, server) = registry(vec![InstallationRole::Router], true).await;
+    for fault in [
+        "",
+        "CREATE TRIGGER fail BEFORE UPDATE OF local_origin ON remote_access BEGIN SELECT RAISE(ABORT,'write failure'); END",
+        "CREATE TRIGGER fail BEFORE UPDATE OF choice ON remote_access BEGIN SELECT RAISE(ABORT,'write failure'); END",
+    ] {
+        let dir = tempfile::tempdir().expect("directory");
+        let machine = Machine::open(dir.path(), Arc::new(DockerBackend::new(dir.path())))
+            .await
+            .expect("machine");
+        sqlx::raw_sql(fault)
+            .execute(&machine.pool)
+            .await
+            .expect("fault");
+        let input = answers("1\nname\nmanaged\n");
+        let listen = "127.0.0.1:8080".parse().expect("listen");
+        let result = setup(
+            &machine,
+            &origin,
+            listen,
+            &mut input.as_bytes(),
+            &mut Vec::new(),
+        )
+        .await;
+        assert_eq!(result.is_ok(), fault.is_empty());
+        if fault.is_empty() {
+            assert!(matches!(
+                machine.remote_status().await.expect("choice").choice,
+                orchestrator_protocol::remote::RemoteChoice::Managed {}
+            ));
+        }
+        machine.close().await;
+    }
+    server.abort();
+}

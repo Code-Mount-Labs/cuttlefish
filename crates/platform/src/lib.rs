@@ -2,8 +2,10 @@
 //! executes agents; each group owns a separate installed routing service.
 
 mod accounts;
+mod addresses;
 mod passwords;
 mod registry;
+pub mod relay;
 pub mod web;
 
 use sqlx::{PgPool, postgres::PgPoolOptions};
@@ -14,6 +16,7 @@ use thiserror::Error;
 #[derive(Debug, Clone)]
 pub struct Platform {
     pool: PgPool,
+    relay_keys: Option<Arc<relay::keys::Keys>>,
     origin: String,
     password_slots: Arc<tokio::sync::Semaphore>,
     passwords: passwords::Passwords,
@@ -22,6 +25,9 @@ pub struct Platform {
 /// Public failure categories; no secrets or database internals reach clients.
 #[derive(Debug, Error)]
 pub enum Error {
+    /// Redacted relay or upstream service failure.
+    #[error("{0}")]
+    Transport(&'static str),
     /// Invalid bounded input.
     #[error("{0}")]
     Invalid(&'static str),
@@ -63,6 +69,7 @@ impl Platform {
         sqlx::migrate!("./migrations").run(&pool).await?;
         Ok(Self {
             pool,
+            relay_keys: None,
             origin,
             password_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             passwords: passwords::Passwords::default(),

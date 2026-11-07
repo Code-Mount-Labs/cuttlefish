@@ -89,7 +89,7 @@ async fn installed_binary_sets_up_and_resumes_without_replacing_identity() {
         if saved.is_none() {
             writeln!(
                 child.stdin.take().expect("input"),
-                "00000000-0000-0000-0000-000000000001\n{}\n1\nCLI test\nhttp://{address}",
+                "00000000-0000-0000-0000-000000000001\n{}\n1\nCLI test\nlocal",
                 "a".repeat(64)
             )
             .expect("answers");

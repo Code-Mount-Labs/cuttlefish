@@ -47,15 +47,36 @@ pub async fn serve_until(
     worker: PathBuf,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> Result<(), Error> {
-    serve_with_shutdown(machine, listen, worker, Box::pin(shutdown)).await
+    serve_with_shutdown(
+        machine,
+        listen,
+        worker,
+        Box::pin(shutdown),
+        tokio::net::TcpListener::local_addr,
+    )
+    .await
 }
 async fn serve_with_shutdown(
     machine: Machine,
     listen: std::net::SocketAddr,
     worker: PathBuf,
     shutdown: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+    address_of: fn(&tokio::net::TcpListener) -> std::io::Result<std::net::SocketAddr>,
 ) -> Result<(), Error> {
     let listener = tokio::net::TcpListener::bind(listen).await?;
+    let address = address_of(&listener)?;
+    let loopback = if address.is_ipv6() {
+        std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST)
+    } else {
+        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+    };
+    machine
+        .set_local_endpoint(&format!(
+            "http://{}",
+            std::net::SocketAddr::new(loopback, address.port())
+        ))
+        .await?;
+    let remote = tokio::spawn(recover_remote(machine.clone()));
     let ready = Arc::new(AtomicBool::new(false));
     let reporting = tokio::spawn(report(machine.clone(), ready.clone()));
     let recovering = tokio::spawn(recover(machine.clone()));
@@ -63,10 +84,11 @@ async fn serve_with_shutdown(
     let result = axum::serve(listener, crate::web::router(machine.clone()))
         .with_graceful_shutdown(shutdown)
         .await;
+    remote.abort();
     reporting.abort();
     recovering.abort();
     execution.abort();
-    let _ = tokio::join!(reporting, recovering, execution);
+    let _ = tokio::join!(reporting, recovering, execution, remote);
     machine.close().await;
     result.map_err(Error::from)
 }
@@ -173,3 +195,14 @@ fn native_platform(os: &str) -> Platform {
 #[cfg(test)]
 #[path = "../tests/internal/runtime.rs"]
 mod tests;
+
+async fn recover_remote(machine: Machine) {
+    let mut interval = tokio::time::interval(Duration::from_secs(5));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        interval.tick().await;
+        if machine.recover_remote().await.is_err() {
+            eprintln!("Remote access needs attention; local work continues.");
+        }
+    }
+}

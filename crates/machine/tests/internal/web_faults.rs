@@ -307,3 +307,79 @@ async fn enrollment_races_accept_only_the_same_identity() {
     machine.close().await;
     db.close().await;
 }
+
+#[tokio::test]
+async fn remote_controls_require_local_admin_and_accept_only_selected_browser_origins() {
+    use orchestrator_protocol::remote::RemoteChoice;
+    let (_dir, machine) = machine().await;
+    let mut headers = admin(&machine).await;
+    assert!(
+        remote_status(State(machine.clone()), HeaderMap::new())
+            .await
+            .is_err()
+    );
+    assert!(
+        remote_select(
+            State(machine.clone()),
+            HeaderMap::new(),
+            Json(RemoteChoice::Managed {})
+        )
+        .await
+        .is_err()
+    );
+    assert!(remote_proof(State(machine.clone())).await.is_ok());
+    assert!(
+        remote_status(State(machine.clone()), headers.clone())
+            .await
+            .is_ok()
+    );
+    let (status, _) = remote_select(
+        State(machine.clone()),
+        headers.clone(),
+        Json(RemoteChoice::Existing {
+            origin: "https://existing.test".into(),
+        }),
+    )
+    .await
+    .expect("select");
+    assert_eq!(status, StatusCode::ACCEPTED);
+    headers.insert(
+        header::ORIGIN,
+        HeaderValue::from_static("https://existing.test"),
+    );
+    assert!(origin(&machine, &headers).await.is_ok());
+    headers.insert(
+        header::ORIGIN,
+        HeaderValue::from_static("https://wrong.test"),
+    );
+    assert!(origin(&machine, &headers).await.is_err());
+    headers.insert(
+        header::ORIGIN,
+        HeaderValue::from_static("http://127.0.0.1:8080"),
+    );
+    assert!(
+        remote_select(
+            State(machine.clone()),
+            headers.clone(),
+            Json(RemoteChoice::Existing {
+                origin: "invalid".into()
+            })
+        )
+        .await
+        .is_err()
+    );
+    sql(&machine, "DROP TABLE remote_access").await;
+    assert!(origin(&machine, &headers).await.is_err());
+    assert!(
+        configuration(State(machine.clone()), headers.clone())
+            .await
+            .is_err()
+    );
+    assert!(
+        remote_status(State(machine.clone()), headers)
+            .await
+            .is_err()
+    );
+    assert!(remote_proof(State(machine.clone())).await.is_err());
+    machine.close().await;
+}

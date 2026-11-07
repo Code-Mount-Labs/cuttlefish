@@ -18,6 +18,8 @@ sqlx = { workspace = true, features = ["postgres", "uuid", "tls-rustls-ring-webp
 tokio = { workspace = true, features = ["net", "signal", "time", "rt-multi-thread", "sync", "process"] }
 clap = { workspace = true, features = ["env"] }
 reqwest.workspace = true
+jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto", "use_pem"] }
+base64 = "0.22"
 
 [dev-dependencies]
 tempfile.workspace = true

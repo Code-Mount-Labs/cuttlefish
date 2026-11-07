@@ -74,11 +74,21 @@ user-owned services; they do not move execution or secrets into the hosted
 platform. A combined installation has both dashboard roles.
 
 Localhost dashboard links are usable only from the machine on which they run.
-Remote dashboard access requires a user-configured reachable HTTPS address or
-private tunnel. Registration does not automatically expose laptop ports.
+Remote dashboard access can use Cuttlefish-managed relay access, a user-configured
+HTTPS address, or a private tunnel. Registration alone does not expose laptop ports.
 
 ## Staging infrastructure
 
 The `Cuttlefish staging` Railway project hosts the platform website/API and its
 registry PostgreSQL. This PostgreSQL is not an execution database for installed
 agents. User-owned router/agent installations remain separate from this project.
+
+## Managed remote access
+
+The installation runtime supports local-only, existing HTTPS, and managed access.
+Managed access uses a separate self-hosted frp relay on Railway, reached by outbound
+WSS connectors on users' machines. Installation-scoped grants and address revisions
+live in platform PostgreSQL; desired connection state and recovery progress live
+in each machine's SQLite journal. See [the implementation and validation](remote-access.md).
+No Cloudflare account or purchased domain is required. The installer source includes
+this choice; published release availability is tracked in the linked document.

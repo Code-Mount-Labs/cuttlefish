@@ -211,7 +211,7 @@ impl Platform {
         if router.is_some() && !own.role.has_router() || agent.is_some() && !own.role.has_agent() {
             return Err(Error::Invalid("dashboard does not match installation role"));
         }
-        sqlx::query("UPDATE installations SET ready=$1,last_seen=clock_timestamp(),router_dashboard_url=$2,agent_dashboard_url=$3 WHERE installation_id=$4")
+        sqlx::query("UPDATE installations SET ready=$1,last_seen=clock_timestamp(),router_dashboard_url=CASE WHEN address_revision>0 THEN router_dashboard_url ELSE $2 END,agent_dashboard_url=CASE WHEN address_revision>0 THEN agent_dashboard_url ELSE $3 END WHERE installation_id=$4")
             .bind(input.ready).bind(router).bind(agent).bind(Uuid::from(own.installation_id)).execute(&self.pool).await?;
         Ok(())
     }

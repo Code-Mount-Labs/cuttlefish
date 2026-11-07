@@ -1,0 +1,21 @@
+# Only nginx is reachable outside this container.
+bindAddr = "127.0.0.1"
+bindPort = 7000
+proxyBindAddr = "127.0.0.1"
+vhostHTTPPort = 7001
+vhostHTTPTimeout = 20
+userConnTimeout = 10
+transport.maxPoolCount = 1
+transport.heartbeatTimeout = 40
+log.level = "error"
+log.disablePrintColor = true
+detailedErrorsToClient = false
+auth.method = "oidc"
+auth.additionalScopes = ["HeartBeats", "NewWorkConns"]
+auth.oidc.issuer = "{{ .Envs.PUBLIC_ORIGIN }}"
+auth.oidc.audience = "{{ .Envs.RELAY_ORIGIN }}"
+[[httpPlugins]]
+name = "installation-authorization"
+addr = "127.0.0.1:7081"
+path = "/frp"
+ops = ["Login", "NewProxy", "Ping", "NewWorkConn"]

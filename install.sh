@@ -1,7 +1,7 @@
 #!/bin/sh
 # Public bootstrap: verified release binaries; no Rust toolchain required.
 set -eu
-version=${CUTTLEFISH_VERSION:-v0.2.0-alpha.4}
+version=${CUTTLEFISH_VERSION:-v0.2.0-alpha.5}
 case "$version" in *[!a-zA-Z0-9._-]*|'') echo 'Invalid release version.' >&2; exit 1;; esac
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64) target=x86_64-unknown-linux-musl;;

@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory(prefix='cuttlefish-release-') as folder:
     assets.append(str(sums))
     hashes[sums.name] = hashlib.sha256(sums.read_bytes()).hexdigest()
     notes = root / 'notes.md'
-    notes.write_text(f'''Cuttlefish {tag} includes a refined chat dashboard, independent scheduled Routines, reusable Workflows, password changes, and local Codex/Claude Code providers over managed HTTPS. It fixes completed workflow sessions occupying worker capacity: durable cleanup now releases each workflow session while preserving its results.
+    notes.write_text(f'''Cuttlefish {tag} includes a refined chat dashboard, independent scheduled Routines, reusable Workflows, password changes, and local Codex/Claude Code providers over managed HTTPS. It also preserves destination focus when closing the mobile navigation drawer. It fixes completed workflow sessions occupying worker capacity: durable cleanup now releases each workflow session while preserving its results.
 
 Create a group at https://platform-production-105c.up.railway.app, choose **Connect a machine**, then run:
 

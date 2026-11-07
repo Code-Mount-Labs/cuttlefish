@@ -39,7 +39,7 @@ export async function allPages<T>(
 }
 export function installCommand(origin: string) {
   return (
-    "curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.4/install.sh | sh -s -- --platform '" +
+    "curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.5/install.sh | sh -s -- --platform '" +
     origin.replaceAll("'", "'\"'\"'") +
     "'"
   );

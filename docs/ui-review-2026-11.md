@@ -11,3 +11,5 @@ Three independent reviewers assessed visual hierarchy, product flow, and keyboar
 Final visual/product reviewers scored the repaired UI 8–8.5/10, with no remaining visual release blockers. These are reviewer judgments, not a substitute for accessibility testing. The browser contract checks desktop/mobile layout, dialog dismissal and focus, menus/tooltips under the deployed content security policy, attachments, safe Markdown, navigation, durable retry, and both local and managed-relay URL prefixes. Screen-reader testing remains a separate validation task.
 
 Password changes are available in local Settings and hosted Account. Successful changes revoke existing sessions; authentication and restart behavior have separate Rust and UI tests.
+
+A live managed-relay check subsequently caught a drawer-close focus race: Radix restored focus to the menu button after page navigation. Navigation dismissal now preserves destination focus, while Escape and outside dismissal still restore the trigger. The alpha.5 patch includes this correction.

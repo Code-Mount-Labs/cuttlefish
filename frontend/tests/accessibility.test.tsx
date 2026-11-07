@@ -76,21 +76,49 @@ describe("accessible primitives and resources", () => {
     } as unknown as MediaQueryList);
     const user = userEvent.setup();
     render(
-      <Sidebar>
-        <Button data-navigate>Chats</Button>
-        <span>Label</span>
-      </Sidebar>,
+      <>
+        <Sidebar>
+          <Button
+            data-navigate
+            onClick={() =>
+              requestAnimationFrame(() =>
+                document.getElementById("destination")?.focus(),
+              )
+            }
+          >
+            Chats
+          </Button>
+          <span>Label</span>
+        </Sidebar>
+        <h1 id="destination" tabIndex={-1}>
+          Chat destination
+        </h1>
+      </>,
     );
     await user.click(screen.getByRole("button", { name: "Open navigation" }));
     expect(screen.getByRole("dialog")).toBeVisible();
     expect(screen.getByRole("heading", { name: "Navigation" })).toHaveFocus();
     await user.click(screen.getByText("Label"));
     expect(screen.getByRole("dialog")).toBeVisible();
+    const trigger = screen.getByRole("button", {
+      name: "Open navigation",
+      hidden: true,
+    });
+    const restoreFocus = vi.spyOn(trigger, "focus");
     await user.click(screen.getByRole("button", { name: "Chats" }));
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(
-      screen.getByRole("button", { name: "Open navigation" }),
-    ).toHaveFocus();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Chat destination" }),
+      ).toHaveFocus(),
+    );
+    expect(restoreFocus).not.toHaveBeenCalled();
+    await user.click(trigger);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(trigger).toHaveFocus());
+    await user.click(trigger);
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
   it("renders safely on a server without browser URL allocation", () => {
     function Preview() {

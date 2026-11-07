@@ -74,6 +74,10 @@ test_id!(
     orchestrator_protocol::ids::PermissionId
 );
 test_id!(reviewer_identity, orchestrator_protocol::ids::ReviewerId);
+test_id!(
+    installation_identity,
+    orchestrator_protocol::ids::InstallationId
+);
 
 #[test]
 fn identifier_errors_preserve_their_source() {

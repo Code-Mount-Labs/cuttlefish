@@ -22,6 +22,7 @@ pub mod agent;
 pub mod capabilities;
 pub mod collaboration;
 pub mod ids;
+pub mod installation;
 pub mod permission;
 pub mod routing;
 pub mod sync;

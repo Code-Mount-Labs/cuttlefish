@@ -1,0 +1,9 @@
+.git
+target
+.tools
+.cache
+.node
+.env*
+private
+**/.DS_Store
+**/*.sqlite*

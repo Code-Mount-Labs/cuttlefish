@@ -61,6 +61,10 @@ macro_rules! resource_id {
 
 resource_id!(GroupId, "A tenant/group identity.");
 resource_id!(
+    InstallationId,
+    "A registered router, agent, or combined installation."
+);
+resource_id!(
     PermissionId,
     "A single immutable runtime permission request."
 );

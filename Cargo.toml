@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/protocol", "crates/domain", "crates/agents", "crates/node", "crates/coordinator", "crates/prompts"]
+members = ["crates/protocol", "crates/domain", "crates/agents", "crates/node", "crates/coordinator", "crates/prompts", "crates/platform"]
 resolver = "3"
 
 [workspace.package]
@@ -25,6 +25,7 @@ axum = "0.8.9"
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 sha2 = "0.10.9"
 tower = { version = "0.5", features = ["util"] }
+argon2 = { version = "0.6.0", features = ["getrandom"] }
 orchestrator-coordinator = { path = "crates/coordinator" }
 
 [workspace.lints.rust]

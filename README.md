@@ -15,8 +15,8 @@ SQLite journal and supervised specialist processes. Each specialist currently
 runs the deterministic fake adapter. A separate coordination service authenticates
 nodes and stores shared routing context in PostgreSQL. It has no execution powers.
 It now makes constrained LLM routing decisions and delivers tasks with durable
-thread/session affinity and conservative failover. Real coding providers and a
-web interface remain future work. The node can now plan goals, delegate child tasks,
+thread/session affinity and conservative failover. Real coding providers remain future work. A separate JSON-first hosted platform
+now provides accounts, groups, and the installation directory. The node can now plan goals, delegate child tasks,
 track progress, and propose catalog-backed learning with human approval.
 See [Super-agent collaboration](#super-agent-collaboration) and the
 [editable prompt library](prompts/README.md).
@@ -28,6 +28,23 @@ the adapter contract and local review surface; the production worker still uses
 the fake adapter. A real provider, remote review UI and permission synchronization
 to the router are subsequent integrations.
 
+## Hosted platform
+
+[Staging website](https://platform-production-105c.up.railway.app) ·
+[Platform API and deployment](docs/platform.md) ·
+[Installation architecture](docs/installation-architecture.md)
+
+The hosted platform uses its own PostgreSQL database for accounts and installation
+metadata. Each user's router uses a **separate user-owned PostgreSQL database**
+for execution. Agents connect to their router, retaining local SQLite journals.
+
+The first platform increment supports sign-up/sign-in, group creation, one-use
+enrollment invitations, an installation directory, and links supplied by installed
+services. Registration enforces exactly one router per group and requires a ready
+router before adding an agent-only installation. Installer binaries, automatic
+service setup, and the local router/agent dashboards are not released yet; the
+registry API is ready for their integration. No working install command is claimed.
+
 ## Workspace
 
 | Crate | Responsibility | Dependencies inside the workspace |
@@ -38,6 +55,7 @@ to the router are subsequent integrations.
 | `orchestrator-node` | Journal, supervision, goal loop and durable decision outbox | Protocol, domain, agents, prompts |
 | `orchestrator-coordinator` | Shared collaboration records, catalog, routing, affinity and dispatch | Protocol, domain, prompts; execution crates only in tests |
 | `orchestrator-prompts` | Bounded Markdown prompt loading and bundled defaults | None |
+| `cuttlefish-platform` | Hosted accounts, groups, enrollment and installation directory | Protocol |
 
 The workspace uses Rust 2024 and pins its compiler in `rust-toolchain.toml`.
 `Cargo.lock` pins the resolved dependencies. There are no empty placeholder

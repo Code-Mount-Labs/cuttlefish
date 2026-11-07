@@ -95,10 +95,23 @@ def run(args):
             label = config.stem
             output = subprocess.check_output(['launchctl', 'print', f'gui/{os.getuid()}/{label}'], text=True)
             return int(re.search(r'\bpid = (\d+)', output).group(1))
+        def descendants(process):
+            rows = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,command='], text=True)
+            processes = [line.strip().split(None, 2) for line in rows.splitlines()]
+            owned = {process.pid}
+            for _ in processes:
+                more = {int(pid) for pid, parent, _ in processes if int(parent) in owned}
+                if more <= owned: break
+                owned |= more
+            return [(int(pid), command) for pid, _, command in processes if int(pid) in owned]
         def stop(process):
-            os.killpg(process.pid, signal.SIGINT)
-            code = process.wait(timeout=15)
-            assert code in (0, 130, -signal.SIGINT) if args.installer_url else code == 0
+            # The pipeline shell is not the supervisor. Signal the exact runtime
+            # descendant, then require the installer pipeline to finish cleanly.
+            runtimes = [pid for pid, command in descendants(process)
+                        if command.startswith(str(binary) + ' --state-dir ' + str(state) + ' ')]
+            assert len(runtimes) == 1, 'exactly one owned supervisor must be running'
+            os.kill(runtimes[0], signal.SIGINT)
+            assert process.wait(timeout=30) == 0
         local_cookie = None
         try:
             process = start('setup')
@@ -158,9 +171,16 @@ def run(args):
         finally:
             for process in children:
                 if process.poll() is None:
-                    os.killpg(process.pid, signal.SIGINT)
+                    owned = descendants(process)
+                    for pid, _ in reversed(owned):
+                        try: os.kill(pid, signal.SIGTERM)
+                        except (ProcessLookupError, PermissionError): pass
                     try: process.wait(timeout=15)
-                    except subprocess.TimeoutExpired: os.killpg(process.pid, signal.SIGKILL); process.wait()
+                    except subprocess.TimeoutExpired:
+                        for pid, _ in reversed(owned):
+                            try: os.kill(pid, signal.SIGKILL)
+                            except (ProcessLookupError, PermissionError): pass
+                        process.wait(timeout=15)
             # Stop the supervisor first so it cannot recreate a connector during cleanup.
             for manifest in (state / 'relay').glob('*.plist'):
                 subprocess.run(['launchctl', 'bootout', f'gui/{os.getuid()}/{manifest.stem}'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

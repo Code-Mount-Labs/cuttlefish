@@ -104,7 +104,7 @@ def run(args):
             process = start('setup')
             await_check(lambda: call(local, '/api/local/status')[0] == 200, 'Mac setup listener', 180)
             if args.expected_version:
-                assert subprocess.check_output([str(binary), '--version'], text=True).strip() == 'cuttlefish ' + args.expected_version
+                assert subprocess.check_output([str(binary), '--version'], text=True).strip() == 'cuttlefish-machine ' + args.expected_version
             setup = call(local, '/api/local/setup', {'token': (state / 'setup.token').read_text(), 'username': 'operator', 'password': password}, browser=True)
             assert setup[0] == 200, 'local administrator setup'
             local_cookie = setup[2]['Set-Cookie'].split(';')[0]
@@ -167,7 +167,8 @@ def run(args):
             if (state / 'setup.sqlite').exists():
                 with sqlite3.connect(state / 'setup.sqlite') as journal:
                     row = journal.execute('SELECT registration FROM installation').fetchone()
-                    revision = journal.execute('SELECT revision FROM remote_access').fetchone()[0]
+                    remote_row = journal.execute('SELECT revision FROM remote_access').fetchone()
+                    revision = remote_row[0] if remote_row else 0
                 if row:
                     registration = json.loads(row[0])
                     call(args.platform, '/api/v1/installations/relay', {'revision': revision + 1, 'credential': None}, registration['credential'])

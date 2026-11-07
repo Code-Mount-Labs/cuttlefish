@@ -347,5 +347,11 @@ try {
   await once(browser, "exit");
   server.closeAllConnections();
   await new Promise((r) => server.close(r));
-  await rm(directory, { recursive: true, force: true });
+  // Chrome helper processes can finish writing just after the main process exits.
+  await rm(directory, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 100,
+  });
 }

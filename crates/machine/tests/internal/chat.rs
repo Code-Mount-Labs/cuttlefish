@@ -23,7 +23,7 @@ fn workspace() -> ProviderWorkspace {
     }
 }
 fn installed(_: LocalProvider) -> Option<PathBuf> {
-    PathBuf::from("/bin/cat").canonicalize().ok()
+    std::env::current_exe().ok()
 }
 #[tokio::test]
 async fn chat_submission_history_and_workspace_configuration_use_authenticated_routes() {

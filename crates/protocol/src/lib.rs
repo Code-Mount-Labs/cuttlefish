@@ -18,6 +18,7 @@
 //! let empty = MessageText(String::new());
 //! ```
 
+pub mod activity;
 pub mod agent;
 pub mod capabilities;
 pub mod collaboration;

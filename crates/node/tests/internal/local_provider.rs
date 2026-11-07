@@ -441,3 +441,183 @@ async fn followup_without_a_saved_provider_session_is_never_restarted() {
             .is_none()
     );
 }
+
+#[test]
+fn provider_activity_only_reports_explicit_tools_and_never_raw_arguments() {
+    for (kind, phase) in [
+        ("commandExecution", ActivityPhase::RunningCommand),
+        ("fileChange", ActivityPhase::WritingFiles),
+        ("webSearch", ActivityPhase::SearchingWeb),
+        ("imageGeneration", ActivityPhase::GeneratingImage),
+        ("collabAgentToolCall", ActivityPhase::Delegating),
+        ("mcpToolCall", ActivityPhase::UsingTool),
+        ("dynamicToolCall", ActivityPhase::UsingTool),
+        ("agentMessage", ActivityPhase::Working),
+        ("reasoning", ActivityPhase::Working),
+    ] {
+        assert_eq!(
+            observed_activity(
+                LocalProvider::Codex,
+                &json!({"method":"item/started","params":{"item":{"type":kind,"arguments":"secret"}}})
+            ),
+            Some(phase)
+        );
+    }
+    for (name, phase) in [
+        ("Read", ActivityPhase::ReadingFiles),
+        ("Glob", ActivityPhase::ReadingFiles),
+        ("Grep", ActivityPhase::ReadingFiles),
+        ("Write", ActivityPhase::WritingFiles),
+        ("Edit", ActivityPhase::WritingFiles),
+        ("MultiEdit", ActivityPhase::WritingFiles),
+        ("Bash", ActivityPhase::RunningCommand),
+        ("WebSearch", ActivityPhase::SearchingWeb),
+        ("WebFetch", ActivityPhase::SearchingWeb),
+        ("Task", ActivityPhase::Delegating),
+        ("Agent", ActivityPhase::Delegating),
+        ("Custom", ActivityPhase::UsingTool),
+    ] {
+        assert_eq!(
+            observed_activity(
+                LocalProvider::Claude,
+                &json!({"type":"assistant","message":{"content":[{"type":"text","text":"private reasoning"},{"type":"tool_use","name":name,"input":{"path":"private"}}]}})
+            ),
+            Some(phase)
+        );
+    }
+    assert_eq!(
+        observed_activity(LocalProvider::Codex, &json!({"method":"turn/started"})),
+        Some(ActivityPhase::Working)
+    );
+    assert_eq!(
+        observed_activity(LocalProvider::Codex, &json!({"method":"item/completed"})),
+        Some(ActivityPhase::Waiting)
+    );
+    assert_eq!(
+        observed_activity(
+            LocalProvider::Claude,
+            &json!({"type":"system","subtype":"init"})
+        ),
+        Some(ActivityPhase::Working)
+    );
+    assert_eq!(
+        observed_activity(
+            LocalProvider::Claude,
+            &json!({"type":"user","message":{"content":[{}, {"type":"tool_result"}]}})
+        ),
+        Some(ActivityPhase::Waiting)
+    );
+    for value in [
+        json!({}),
+        json!({"method":0}),
+        json!({"method":"unknown"}),
+        json!({"method":"item/started"}),
+        json!({"method":"item/started","params":{"item":{"type":0}}}),
+        json!({"method":"item/started","params":{"item":{"type":"future"}}}),
+    ] {
+        assert_eq!(observed_activity(LocalProvider::Codex, &value), None);
+    }
+    for value in [
+        json!({}),
+        json!({"type":0}),
+        json!({"type":"future"}),
+        json!({"type":"system"}),
+        json!({"type":"system","subtype":0}),
+        json!({"type":"system","subtype":"other"}),
+        json!({"type":"assistant"}),
+        json!({"type":"assistant","message":{"content":0}}),
+        json!({"type":"assistant","message":{"content":[]}}),
+        json!({"type":"assistant","message":{"content":[{"type":"tool_use"}]}}),
+        json!({"type":"assistant","message":{"content":[{"type":"tool_use","name":0}]}}),
+        json!({"type":"user"}),
+        json!({"type":"user","message":{"content":0}}),
+        json!({"type":"user","message":{"content":[]}}),
+    ] {
+        assert_eq!(observed_activity(LocalProvider::Claude, &value), None);
+    }
+}
+
+#[tokio::test]
+async fn real_protocol_loops_persist_observed_tool_activity() {
+    let (_f, a) = agent(LocalProvider::Codex).await;
+    let mut input = events();
+    input.insert(3,json!({"method":"item/started","params":{"threadId":"session-one","item":{"type":"commandExecution"}}}));
+    a.codex(&start(), "test", None, &mut wire(&input))
+        .await
+        .expect("codex");
+    assert!(
+        a.journal
+            .pending_activity()
+            .await
+            .expect("activity")
+            .iter()
+            .any(|e| e.phase == ActivityPhase::RunningCommand)
+    );
+    let (_f, a) = agent(LocalProvider::Claude).await;
+    let input = vec![
+        json!({"type":"system","subtype":"init","session_id":"claude-one"}),
+        json!({"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read"}]}}),
+        json!({"type":"result","session_id":"claude-one","is_error":false,"subtype":"success","result":"Done"}),
+    ];
+    a.claude(&start(), &mut wire(&input)).await.expect("claude");
+    assert!(
+        a.journal
+            .pending_activity()
+            .await
+            .expect("activity")
+            .iter()
+            .any(|e| e.phase == ActivityPhase::ReadingFiles)
+    );
+}
+
+async fn reject_phase(a: &LocalAgent, phase: &str) {
+    let sql = format!(
+        "CREATE TRIGGER reject_phase BEFORE INSERT ON execution_activity WHEN json_extract(NEW.phase,'$')='{phase}' BEGIN SELECT RAISE(ABORT,'activity unavailable'); END"
+    );
+    sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+        .execute(&a.journal.pool)
+        .await
+        .expect("fault");
+}
+#[tokio::test]
+async fn provider_progress_storage_failures_are_explicit_and_never_report_success() {
+    for phase in [
+        "preparing",
+        "connecting",
+        "submitted",
+        "working",
+        "collecting_results",
+    ] {
+        let (_f, mut a) = agent(LocalProvider::Claude).await;
+        reject_phase(&a, phase).await;
+        let init = json!({"type":"system","subtype":"init","session_id":start().target.session_id});
+        let terminal = json!({"type":"result","session_id":start().target.session_id,"is_error":false,"subtype":"success","result":"Done"});
+        script(
+            &mut a,
+            &format!("cat >/dev/null\nprintf '%s\\n' '{init}' '{terminal}'"),
+        );
+        assert!(a.execute(&start()).await.is_err(), "phase {phase}");
+        assert_eq!(
+            a.journal
+                .pending_activity()
+                .await
+                .expect("saved")
+                .last()
+                .expect("attention")
+                .phase,
+            ActivityPhase::NeedsAttention
+        );
+    }
+    for phase in ["submitted", "waiting"] {
+        let (_f, a) = agent(LocalProvider::Codex).await;
+        reject_phase(&a, phase).await;
+        assert!(
+            a.codex(&start(), "test", None, &mut wire(&events()))
+                .await
+                .is_err()
+        );
+    }
+    let (_f, a) = agent(LocalProvider::Claude).await;
+    sqlx::raw_sql("CREATE TRIGGER reject_binding BEFORE INSERT ON provider_bindings BEGIN SELECT RAISE(ABORT,'binding unavailable'); END").execute(&a.journal.pool).await.expect("fault");
+    assert!(a.run(&start(), "test").await.is_err());
+}

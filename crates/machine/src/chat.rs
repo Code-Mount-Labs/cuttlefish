@@ -269,3 +269,17 @@ impl Machine {
             .map_err(|_| Error::Invalid("attachment_unavailable"))
     }
 }
+
+impl Machine {
+    /// Read factual provider progress for this group's conversation.
+    ///
+    /// # Errors
+    /// Reports authentication, setup or storage failures.
+    pub async fn chat_activity(&self, thread: ThreadId) -> Result<Value, Error> {
+        let (store, token) = self.chat_store().await?;
+        store
+            .conversation_activity(&token, thread)
+            .await
+            .map_err(|_| Error::Dependency("activity_unavailable"))
+    }
+}

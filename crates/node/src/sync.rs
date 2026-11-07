@@ -173,6 +173,7 @@ impl Remote {
         journal: &Journal,
         profile: &NodeProfile,
     ) -> Result<usize, NodeError> {
+        self.upload_activity(journal).await?;
         self.upload_artifacts(journal).await?;
         let report = journal.sync_report(profile.clone()).await?;
         report.validate()?;

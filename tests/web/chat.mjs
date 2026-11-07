@@ -60,7 +60,7 @@ const server = createServer(async (req, res) => {
     if (route === "status") value = { initialized: true };
     else if (route === "config")
       value = {
-        features: { chat: true, attachments: true },
+        features: { chat: true, attachments: true, activity: true },
         role: "router_agent",
         name: "Browser test",
         group_id: "test",
@@ -80,6 +80,28 @@ const server = createServer(async (req, res) => {
             },
           ]
         : [];
+    else if (route.endsWith("/activity"))
+      value = {
+        events: accepted
+          ? [
+              {
+                sequence: 1,
+                command_id: accepted.command_id,
+                provider: "claude",
+                phase: "submitted",
+                at_ms: Date.now() - 3000,
+              },
+              {
+                sequence: 2,
+                command_id: accepted.command_id,
+                provider: "claude",
+                phase: "reading_files",
+                at_ms: Date.now() - 2000,
+              },
+            ]
+          : [],
+        last_seen_ms: Date.now(),
+      };
     else if (route.startsWith("chat/"))
       value =
         accepted && route === "chat/" + accepted.thread_id
@@ -248,6 +270,31 @@ try {
   await until(() =>
     evaluate("document.querySelectorAll('#messages .agent').length===1"),
   );
+  assert.equal(
+    await evaluate("document.querySelector('.activity-title').textContent"),
+    "Completed",
+  );
+  await evaluate("document.querySelector('.task-activity summary').click()");
+  assert.equal(
+    await evaluate("document.querySelector('.task-activity details').open"),
+    true,
+  );
+  assert.ok(
+    (
+      await evaluate("document.querySelector('.activity-timeline').textContent")
+    ).includes("Claude Code is reading files"),
+  );
+  const progress = await evaluate(`(() => {
+    const turn = {state:"claimed"};
+    return [activityState(turn,[{phase:"reading_files",provider:"claude"}],Date.now()).title,
+      activityState(turn,[{phase:"needs_attention",provider:"codex"}],Date.now()).tone,
+      activityState(turn,[],Date.now()-60000).title];
+  })()`);
+  assert.deepEqual(progress, [
+    "Claude Code is reading files…",
+    "attention",
+    "Agent connection interrupted",
+  ]);
   assert.equal(requests.length, 2);
   assert.deepEqual(requests[0], requests[1]);
   assert.equal(

@@ -41,6 +41,7 @@ async fn chat_submission_history_and_workspace_configuration_use_authenticated_r
         "/api/local/chat",
         "/api/local/chat/workspaces",
         "/api/local/chat/00000000-0000-0000-0000-000000000001",
+        "/api/local/chat/00000000-0000-0000-0000-000000000001/activity",
     ] {
         assert!(
             !request(&app, path, None, Some(&cookie), None)
@@ -201,6 +202,7 @@ async fn check_conversation(machine: &Machine, app: &axum::Router, cookie: &str)
         "/api/local/chat".to_owned(),
         "/api/local/chat/workspaces".to_owned(),
         format!("/api/local/chat/{}", route.thread_id),
+        format!("/api/local/chat/{}/activity", route.thread_id),
     ] {
         assert_eq!(
             request(app, &path, None, Some(cookie), None).await.0,
@@ -430,6 +432,21 @@ async fn attachment_http_requires_admin_and_round_trips_exact_content() {
 
 async fn check_storage_errors(machine: &Machine, app: &axum::Router, cookie: &str, url: &str) {
     let pool = sqlx::PgPool::connect(url).await.expect("pool");
+    sqlx::query("ALTER TABLE execution_activity RENAME TO hidden_activity")
+        .execute(&pool)
+        .await
+        .expect("fault");
+    assert!(
+        machine
+            .chat_activity(Uuid::from_u128(201).try_into().expect("thread"))
+            .await
+            .is_err()
+    );
+    sqlx::query("ALTER TABLE hidden_activity RENAME TO execution_activity")
+        .execute(&pool)
+        .await
+        .expect("restore");
+
     sqlx::query("ALTER TABLE provider_workspaces RENAME TO hidden_workspaces")
         .execute(&pool)
         .await
@@ -480,6 +497,7 @@ async fn check_storage_errors(machine: &Machine, app: &axum::Router, cookie: &st
     for path in [
         "/api/local/chat",
         "/api/local/chat/00000000-0000-0000-0000-000000000001",
+        "/api/local/chat/00000000-0000-0000-0000-000000000001/activity",
     ] {
         assert!(
             !request(app, path, None, Some(cookie), None)
@@ -515,6 +533,7 @@ async fn check_unauthenticated_routes(app: &axum::Router) {
         "/api/local/chat",
         "/api/local/chat/workspaces",
         "/api/local/chat/00000000-0000-0000-0000-000000000001",
+        "/api/local/chat/00000000-0000-0000-0000-000000000001/activity",
     ] {
         assert_eq!(
             request(app, path, None, None, None).await.0,

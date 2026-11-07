@@ -3,7 +3,8 @@ const base = location.pathname.match(/^\/i\/[a-f0-9-]{36}(?=\/|$)/)?.[0] || "";
 const $ = (id) => document.getElementById(id);
 let initialized = false,
   signedIn = false,
-  remoteRevision = null;
+  remoteRevision = null,
+  activityEnabled = false;
 async function api(path, body) {
   const response = await fetch(base + "/api/local/" + path, {
     method: body === undefined ? "GET" : "POST",
@@ -62,6 +63,7 @@ async function refresh() {
   $("settings").hidden = false;
   $("logout").hidden = false;
   $("workspace-nav").hidden = false;
+  activityEnabled = data.features?.activity === true;
   const canChat = data.features?.chat === true && data.role !== "agent";
   $("provider-settings").hidden =
     data.role === "router" || !data.features?.chat;
@@ -569,6 +571,15 @@ function pendingControls() {
   );
 }
 function renderChatList() {
+  const signature = JSON.stringify([
+    chatRows,
+    activeThread,
+    !!pendingChat,
+    sending,
+    $("chat-search").value,
+  ]);
+  if ($("chat-list").dataset.signature === signature) return;
+  $("chat-list").dataset.signature = signature;
   $("chat-list").replaceChildren();
   for (const row of chatRows) {
     const title =
@@ -591,6 +602,146 @@ function renderChatList() {
     $("chat-list").append(button);
   }
 }
+const providerLabel = (provider) =>
+  provider === "claude"
+    ? "Claude Code"
+    : provider === "codex"
+      ? "Codex"
+      : "Your agent";
+function activityLabel(phase, provider) {
+  const name = providerLabel(provider);
+  return (
+    {
+      preparing: "Preparing task…",
+      connecting: `Connecting to ${name}…`,
+      submitted: `Passed task to ${name}`,
+      working: `${name} is working…`,
+      reading_files: `${name} is reading files…`,
+      writing_files: `${name} is updating files…`,
+      running_command: `${name} is running a command…`,
+      searching_web: `${name} is searching the web…`,
+      generating_image: `${name} is creating an image…`,
+      delegating: `${name} is coordinating sub-agents…`,
+      using_tool: `${name} is using a tool…`,
+      waiting: `Waiting for ${name}…`,
+      collecting_results: "Saving results…",
+      needs_attention: "This task needs attention",
+    }[phase] || "Waiting for an update…"
+  );
+}
+function activityState(turn, events, lastSeen) {
+  const latest = events.at(-1);
+  const done = turn.state === "completed";
+  const failed = turn.outcome?.type === "rejected";
+  const attention = !done && latest?.phase === "needs_attention";
+  const offline = !done && lastSeen && Date.now() - lastSeen > 20000;
+  const title = done
+    ? failed
+      ? "Task couldn’t be completed"
+      : "Completed"
+    : attention
+      ? "This task needs attention"
+      : offline
+        ? "Agent connection interrupted"
+        : latest
+          ? activityLabel(latest.phase, latest.provider)
+          : turn.state === "queued"
+            ? "Waiting for an available agent…"
+            : "Handed to your agent · waiting for an update…";
+  const hint = attention
+    ? "Execution stopped with an uncertain result. Check the agent before retrying; this task won’t be replayed automatically."
+    : offline
+      ? "The task may still be running. Updates will resume when the agent reconnects."
+      : done
+        ? ""
+        : "You can leave this chat and return. Your progress is saved.";
+  return {
+    title,
+    hint,
+    active: !done && !attention && !offline,
+    tone:
+      failed || attention
+        ? "attention"
+        : offline
+          ? "offline"
+          : done
+            ? "complete"
+            : "active",
+  };
+}
+function renderActivity(turns, activity) {
+  for (const turn of turns) {
+    const slot = document.getElementById("activity-" + turn.request.command_id);
+    if (!slot) continue;
+    const events = (activity.events || []).filter(
+      (event) => event.command_id === turn.request.command_id,
+    );
+    const state = activityState(turn, events, activity.last_seen_ms);
+    const signature = JSON.stringify([events, state]);
+    if (slot.dataset.signature === signature) continue;
+    slot.dataset.signature = signature;
+    const wasOpen = slot.querySelector("details")?.open;
+    slot.replaceChildren();
+    slot.className = "task-activity " + state.tone;
+    const details = document.createElement("details");
+    details.open = wasOpen ?? false;
+    const summary = document.createElement("summary");
+    const dot = document.createElement("span");
+    dot.className = state.active
+      ? "activity-indicator spinning"
+      : "activity-indicator";
+    dot.setAttribute("aria-hidden", "true");
+    dot.textContent =
+      state.tone === "complete" ? "✓" : state.tone === "attention" ? "!" : "";
+    const title = document.createElement("span");
+    title.className = "activity-title";
+    title.textContent = state.title;
+    const meta = document.createElement("span");
+    meta.className = "activity-meta";
+    meta.textContent = events.length
+      ? `${events.length} updates`
+      : "Live activity";
+    summary.append(dot, title, meta);
+    details.append(summary);
+    const list = document.createElement("ol");
+    list.className = "activity-timeline";
+    for (const event of events) {
+      const item = document.createElement("li");
+      const label = document.createElement("span");
+      label.textContent = activityLabel(event.phase, event.provider).replace(
+        /…$/,
+        "",
+      );
+      const time = document.createElement("time");
+      const date = new Date(event.at_ms);
+      if (Number.isFinite(date.getTime())) time.dateTime = date.toISOString();
+      time.textContent = date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+      item.append(label, time);
+      list.append(item);
+    }
+    if (!events.length) {
+      const item = document.createElement("li");
+      item.textContent =
+        state.tone === "complete"
+          ? "Detailed activity is not available for this earlier task."
+          : "Detailed activity will appear when the agent reports its next step.";
+      list.append(item);
+    }
+    details.append(list);
+    slot.append(details);
+    if (state.hint) {
+      const hint = document.createElement("p");
+      hint.className = "activity-hint";
+      hint.textContent = state.hint;
+      slot.append(hint);
+    }
+  }
+}
+
 async function refreshChat() {
   if (chatBusy || sending) return;
   chatBusy = true;
@@ -598,12 +749,16 @@ async function refreshChat() {
     workspaceRows = await api("chat/workspaces");
     chatRows = await api("chat");
     const selected = $("chat-workspace").value;
-    $("chat-workspace").replaceChildren();
-    for (const row of workspaceRows) {
-      const option = document.createElement("option");
-      option.value = row.workspace.workspace_id;
-      option.textContent = `${row.workspace.name} · ${row.workspace.provider}`;
-      $("chat-workspace").append(option);
+    const workspaceSignature = JSON.stringify(workspaceRows);
+    if ($("chat-workspace").dataset.signature !== workspaceSignature) {
+      $("chat-workspace").dataset.signature = workspaceSignature;
+      $("chat-workspace").replaceChildren();
+      for (const row of workspaceRows) {
+        const option = document.createElement("option");
+        option.value = row.workspace.workspace_id;
+        option.textContent = `${row.workspace.name} · ${row.workspace.provider}`;
+        $("chat-workspace").append(option);
+      }
     }
     if (workspaceRows.some((r) => r.workspace.workspace_id === selected))
       $("chat-workspace").value = selected;
@@ -612,6 +767,10 @@ async function refreshChat() {
       $("chat-message").value = pendingChat.action.message?.text || "";
     }
     let turns = activeThread ? await api("chat/" + activeThread) : [];
+    const activity =
+      activeThread && activityEnabled
+        ? await api("chat/" + activeThread + "/activity")
+        : { events: [], last_seen_ms: null };
     let busy = false,
       ended = false;
     for (const turn of turns) {
@@ -640,6 +799,11 @@ async function refreshChat() {
         const message = turn.request.action.message;
         if (message)
           addMessage("user", message.text, message.attachments || []);
+        const slot = document.createElement("div");
+        slot.id = "activity-" + turn.request.command_id;
+        slot.setAttribute("aria-live", "off");
+        slot.setAttribute("aria-label", "Task activity");
+        $("messages").append(slot);
         if (turn.outcome?.type === "completed") {
           const event = turn.outcome.event;
           if (event.kind.type === "replied")
@@ -651,17 +815,36 @@ async function refreshChat() {
       if (atBottom)
         requestAnimationFrame(() => (scroll.scrollTop = scroll.scrollHeight));
     }
-    $("chat-status").textContent = busy
-      ? "Awaiting result · you can leave this page and return later."
+    renderActivity(turns, activity);
+    const latest = turns.at(-1);
+    const latestState = latest
+      ? activityState(
+          latest,
+          (activity.events || []).filter(
+            (e) => e.command_id === latest.request.command_id,
+          ),
+          activity.last_seen_ms,
+        )
+      : null;
+    const statusText = busy
+      ? latestState.title
       : ended
         ? "Session ended. Start a new chat to continue."
         : workspaceRows.length
           ? ""
           : "Create a provider workspace in Settings to start chatting.";
+    if ($("chat-status").textContent !== statusText)
+      $("chat-status").textContent = statusText;
     $("chat-send").disabled = busy || ended || !workspaceRows.length;
     $("end-chat").hidden = !activeThread || busy || ended || !!pendingChat;
     pendingControls();
     renderChatList();
+  } catch (error) {
+    $("chat-status").textContent =
+      error.status === 401
+        ? "Sign in to continue."
+        : "Connection interrupted · reconnecting automatically. Your task may still be running.";
+    throw error;
   } finally {
     chatBusy = false;
   }
@@ -788,6 +971,7 @@ $("chat-form").addEventListener("submit", (event) => {
   event.preventDefault();
   if (sending || $("chat-send").disabled) return;
   sending = true;
+  $("chat-status").textContent = "Preparing your message…";
   pendingControls();
   $("chat-send").disabled = true;
   notice("");
@@ -823,6 +1007,7 @@ $("chat-form").addEventListener("submit", (event) => {
         });
         clearDrafts();
       }
+      $("chat-status").textContent = "Sending task to your agent…";
       const reply = await api("chat", pendingChat);
       activeThread = reply.request.thread_id;
       history.replaceState(null, "", "#chat/" + activeThread);
@@ -873,3 +1058,9 @@ for (const button of document.querySelectorAll("[data-starter]"))
 $("mobile-menu").addEventListener("click", () =>
   document.body.classList.toggle("sidebar-open"),
 );
+
+// Activity polling is lightweight metadata only; it never invokes the model.
+setInterval(() => {
+  if (signedIn && chatVisible && activeThread && !document.hidden && !sending)
+    refreshChat().catch(() => {});
+}, 2000);

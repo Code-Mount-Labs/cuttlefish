@@ -34,6 +34,7 @@ pub fn router_with_selector(store: Store, selector: Arc<dyn Selector>) -> Router
         .with_state(RoutingService::new(store.clone(), selector));
     Router::new()
         .route("/v1/sync", post(sync))
+        .route("/v1/activity", post(record_activity))
         .route("/v1/nodes", get(nodes))
         .route(
             "/v1/attachments",
@@ -186,5 +187,15 @@ async fn attachment_chunk(
 ) -> Result<Json<orchestrator_protocol::attachments::AttachmentChunk>, Error> {
     Ok(Json(
         store.attachment_chunk(&token(&headers)?, id, index).await?,
+    ))
+}
+
+async fn record_activity(
+    State(store): State<Store>,
+    headers: HeaderMap,
+    Json(events): Json<Vec<orchestrator_protocol::activity::ExecutionActivity>>,
+) -> Result<Json<Vec<i64>>, Error> {
+    Ok(Json(
+        store.record_activity(&token(&headers)?, &events).await?,
     ))
 }

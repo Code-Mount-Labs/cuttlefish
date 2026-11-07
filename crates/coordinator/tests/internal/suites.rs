@@ -38,3 +38,6 @@ mod chat;
 
 #[path = "../suites/attachments.rs"]
 mod attachments;
+
+#[path = "../suites/activity.rs"]
+mod activity;

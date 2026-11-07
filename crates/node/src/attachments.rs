@@ -329,6 +329,10 @@ fn sync_directory(path: &Path) -> std::io::Result<()> {
     std::fs::File::open(path).and_then(|file| file.sync_all())
 }
 #[cfg(not(unix))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "Keeps the fallible directory-sync interface across platforms; std only provides directory fsync on Unix"
+)]
 fn sync_directory(_: &Path) -> std::io::Result<()> {
     Ok(())
 }

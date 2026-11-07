@@ -1,5 +1,6 @@
 //! Shared routing records and authenticated synchronization. No task execution.
 
+pub mod activity;
 pub mod catalog_source;
 pub mod collaboration;
 mod collaboration_web;

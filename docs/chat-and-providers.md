@@ -32,12 +32,22 @@ Enter sends; Shift+Enter inserts a newline. A pending send retains its exact
 request identity through a page reload, so retrying cannot create a second task.
 Signing out clears the current browser's pending request and visible chat data.
 
-Messages currently refresh by polling. Token-by-token streaming, active-turn
+Messages and durable activity refresh by polling. The activity timeline reports
+preparing, connecting, provider handoff, observed tool use, waiting, and saving
+results. Tool labels come from provider events, not timed animations or inferred
+percentages. Raw arguments, file contents, and reasoning are never included.
+Consecutive duplicate stages are suppressed; each turn keeps up to 256 activity
+records, plus a recovery notice if execution becomes uncertain. Node-local SQLite
+retains the outbox until the authenticated router acknowledges the exact sequence
+batch. Reopening the chat restores the timeline from the execution PostgreSQL.
+Missing heartbeats are shown as interrupted connections, not proof that a task
+stopped. Recovered uncertainty is shown as requiring attention.
+
+Token-by-token streaming, active-turn
 cancellation, conversation renaming/archiving, voice conversations, and a visual
 artifact editor are not implemented. This is a familiar chat interaction model,
-not a claim of complete ChatGPT feature parity. A pending result remains pending
-if the worker becomes uncertain; the operator must inspect its journal before
-recovering it. Closing the browser does not stop execution.
+not a claim of complete ChatGPT feature parity. An uncertain result requires the operator to inspect the workspace before
+recovering it; the activity timeline makes that state visible. Closing the browser does not stop execution.
 
 ## Files and capabilities
 
@@ -95,6 +105,7 @@ require the installation origin. Managed relay access uses the same routes under
 | `GET /api/local/chat/workspaces` | Group workspace directory at the router |
 | `GET, POST /api/local/chat` | Recent conversations or idempotent task submission |
 | `GET /api/local/chat/{thread_id}` | Most recent 100 turns, in chronological order |
+| `GET /api/local/chat/{thread_id}/activity` | Durable activity and last observed node heartbeat |
 | `POST /api/local/attachments` | Idempotent bounded chunk upload |
 | `GET /api/local/attachments/{id}/chunks/{index}` | Authenticated chunk download |
 

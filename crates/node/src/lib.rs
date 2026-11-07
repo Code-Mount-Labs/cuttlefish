@@ -1,6 +1,7 @@
 //! Durable local node runtime. Specialists communicate through a local `SQLite`
 //! journal and do not depend on a supervisor's pipes or process lifetime.
 
+pub mod activity;
 pub mod cli;
 pub mod journal;
 pub mod model;

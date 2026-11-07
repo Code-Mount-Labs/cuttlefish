@@ -2,6 +2,7 @@
 use crate::{NodeError, execution::ExecutionConfig, journal::Journal};
 use orchestrator_agents::Agent;
 use orchestrator_protocol::{
+    activity::ActivityPhase,
     agent::{AgentAction, AgentCommand, AgentEvent, AgentEventKind},
     execution::LocalProvider,
     permission::ProviderBinding,
@@ -33,6 +34,20 @@ impl LocalAgent {
             instance,
             config,
         }
+    }
+    async fn activity(
+        &self,
+        command: &AgentCommand,
+        phase: ActivityPhase,
+    ) -> Result<(), NodeError> {
+        self.journal
+            .record_activity(
+                command.command_id,
+                &self.instance,
+                self.config.workspace.provider,
+                phase,
+            )
+            .await
     }
     async fn bind(&self, command: &AgentCommand, id: &str) -> Result<(), NodeError> {
         let binding = ProviderBinding {
@@ -72,8 +87,10 @@ impl LocalAgent {
                 "provider session is unavailable; automatic replay refused",
             ));
         }
+        self.activity(command, ActivityPhase::Preparing).await?;
         let message = crate::attachments::input_context(&self.config, command, message)?;
         let mut process = self.process(command, binding.as_ref()).await?;
+        self.activity(command, ActivityPhase::Connecting).await?;
         let (mut child, mut wire) = spawn(&mut process)?;
         let result = tokio::time::timeout(timeout, async {
             match self.config.workspace.provider {
@@ -84,6 +101,7 @@ impl LocalAgent {
                 LocalProvider::Claude => {
                     wire.input.write_all(message.as_bytes()).await?;
                     drop(wire.input);
+                    self.activity(command, ActivityPhase::Submitted).await?;
                     let mut output = Wire {
                         input: Box::new(tokio::io::sink()),
                         output: wire.output,
@@ -211,6 +229,7 @@ impl LocalAgent {
         self.bind(command, id).await?;
         wire.send(json!({"id":3,"method":"turn/start","params":{"threadId":id,"input":crate::attachments::codex_input(&self.config,command,message),"approvalPolicy":"never","sandboxPolicy":if self.config.workspace.allow_edits {json!({"type":"workspaceWrite","writableRoots":[self.config.directory],"networkAccess":false})}else{json!({"type":"readOnly"})}}})).await?;
         let response = wire.response(3).await?;
+        self.activity(command, ActivityPhase::Submitted).await?;
         let turn = response
             .pointer("/turn/id")
             .and_then(Value::as_str)
@@ -220,6 +239,9 @@ impl LocalAgent {
             let event = wire.read().await?;
             if event.pointer("/params/threadId").and_then(Value::as_str) != Some(id) {
                 continue;
+            }
+            if let Some(phase) = observed_activity(LocalProvider::Codex, &event) {
+                self.activity(command, phase).await?;
             }
             match event.get("method").and_then(Value::as_str) {
                 Some("item/completed")
@@ -255,6 +277,9 @@ impl LocalAgent {
             if let Some(id) = event.get("session_id").and_then(Value::as_str) {
                 self.bind(command, id).await?;
             }
+            if let Some(phase) = observed_activity(LocalProvider::Claude, &event) {
+                self.activity(command, phase).await?;
+            }
             if event.get("type").and_then(Value::as_str) == Some("result") {
                 if event.get("session_id").and_then(Value::as_str).is_none() {
                     return Err(NodeError::Rejected("provider session missing"));
@@ -281,6 +306,16 @@ impl Agent for LocalAgent {
         true
     }
     async fn execute(&mut self, command: &AgentCommand) -> Result<AgentEvent, NodeError> {
+        let result = self.execute_turn(command).await;
+        if result.is_err() {
+            // The original failure is authoritative even when storage is unavailable.
+            let _ = self.activity(command, ActivityPhase::NeedsAttention).await;
+        }
+        result
+    }
+}
+impl LocalAgent {
+    async fn execute_turn(&self, command: &AgentCommand) -> Result<AgentEvent, NodeError> {
         let kind = match &command.action {
             AgentAction::Cancel => AgentEventKind::Cancelled,
             AgentAction::Start { message, .. } | AgentAction::Send { message } => {
@@ -295,6 +330,8 @@ impl Agent for LocalAgent {
         let artifacts = if matches!(command.action, AgentAction::Cancel) {
             vec![]
         } else {
+            self.activity(command, ActivityPhase::CollectingResults)
+                .await?;
             crate::attachments::collect_outputs(&self.journal, &self.config, command).await?
         };
         Ok(AgentEvent {
@@ -397,4 +434,54 @@ fn spawn(process: &mut Command) -> Result<(tokio::process::Child, Wire), NodeErr
     let mut child = process.spawn()?;
     let wire = transport(&mut child)?;
     Ok((child, wire))
+}
+
+/// Interpret only explicit provider events; never expose raw tool arguments or reasoning.
+fn observed_activity(provider: LocalProvider, event: &Value) -> Option<ActivityPhase> {
+    match provider {
+        LocalProvider::Codex => match event.get("method")?.as_str()? {
+            "turn/started" => Some(ActivityPhase::Working),
+            "item/started" => match event.pointer("/params/item/type")?.as_str()? {
+                "commandExecution" => Some(ActivityPhase::RunningCommand),
+                "fileChange" => Some(ActivityPhase::WritingFiles),
+                "webSearch" => Some(ActivityPhase::SearchingWeb),
+                "imageGeneration" => Some(ActivityPhase::GeneratingImage),
+                "collabAgentToolCall" => Some(ActivityPhase::Delegating),
+                "mcpToolCall" | "dynamicToolCall" => Some(ActivityPhase::UsingTool),
+                "agentMessage" | "reasoning" => Some(ActivityPhase::Working),
+                _ => None,
+            },
+            "item/completed" => Some(ActivityPhase::Waiting),
+            _ => None,
+        },
+        LocalProvider::Claude => match event.get("type")?.as_str()? {
+            "system" if event.get("subtype")?.as_str()? == "init" => Some(ActivityPhase::Working),
+            "assistant" => {
+                let content = event.pointer("/message/content")?.as_array()?;
+                let tool = content
+                    .iter()
+                    .find(|block| block.get("type").and_then(Value::as_str) == Some("tool_use"))?;
+                Some(match tool.get("name")?.as_str()? {
+                    "Read" | "Glob" | "Grep" => ActivityPhase::ReadingFiles,
+                    "Write" | "Edit" | "MultiEdit" => ActivityPhase::WritingFiles,
+                    "Bash" => ActivityPhase::RunningCommand,
+                    "WebSearch" | "WebFetch" => ActivityPhase::SearchingWeb,
+                    "Task" | "Agent" => ActivityPhase::Delegating,
+                    _ => ActivityPhase::UsingTool,
+                })
+            }
+            "user"
+                if event
+                    .pointer("/message/content")?
+                    .as_array()?
+                    .iter()
+                    .any(|block| {
+                        block.get("type").and_then(Value::as_str) == Some("tool_result")
+                    }) =>
+            {
+                Some(ActivityPhase::Waiting)
+            }
+            _ => None,
+        },
+    }
 }

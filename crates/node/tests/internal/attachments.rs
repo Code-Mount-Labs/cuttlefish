@@ -676,6 +676,11 @@ async fn followups_without_files_need_no_network_and_images_keep_native_input() 
         &"a".repeat(64).try_into().expect("token"),
     )
     .expect("remote");
+    assert_eq!(
+        input_context(&config, &crate::test_support::cancel(13), "stop")
+            .expect("cancel needs no staging"),
+        "stop"
+    );
     let mut followup = crate::test_support::send(12);
     remote
         .download_inputs(&f.journal, &followup)
@@ -686,6 +691,8 @@ async fn followups_without_files_need_no_network_and_images_keep_native_input() 
     if let AgentAction::Send { message } = &mut followup.action {
         message.attachments.push(image.clone());
     }
+    let context = input_context(&config, &followup, "edit this image").expect("follow-up context");
+    assert!(context.contains(&image.name));
     let inputs = codex_input(&config, &followup, "edit this image");
     assert_eq!(inputs.len(), 2);
     assert_eq!(inputs[0], json!({"type":"text","text":"edit this image"}));

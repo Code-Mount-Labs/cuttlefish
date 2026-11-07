@@ -79,8 +79,13 @@ Linux and macOS: ARM64 and x86-64. All archives are checksum-verified. [Build ve
 
 This alpha uses Cuttlefish staging. The main process runs in the foreground; the connector has its own OS service. Public relay access supports JSON polling; streaming/WebSockets, Windows installation and live specialist providers remain deferred.
 ''')
-    gh('release', 'create', tag, *assets, '--repo', repository, '--draft', '--prerelease', '--target', source, '--title', 'Cuttlefish ' + tag, '--notes-file', str(notes))
-    release = api('releases/tags/' + tag)
+    release = next((item for item in api('releases?per_page=100') if item['tag_name'] == tag), None)
+    if release is None:
+        gh('release', 'create', tag, *assets, '--repo', repository, '--draft', '--prerelease', '--target', source, '--title', 'Cuttlefish ' + tag, '--notes-file', str(notes))
+        release = next(item for item in api('releases?per_page=100') if item['tag_name'] == tag)
+    # Draft tags are not available through releases/tags until publication.
+    # Resume only an exact draft; never replace an existing published release.
+    assert release['draft'] and release['target_commitish'] == source
     assert len(release['assets']) == len(hashes)
     for asset in release['assets']:
         assert asset['digest'] == 'sha256:' + hashes[asset['name']], 'Uploaded asset checksum mismatch'

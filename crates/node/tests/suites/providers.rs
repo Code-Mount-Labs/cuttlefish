@@ -149,5 +149,11 @@ async fn public_attachment_api_rejects_bad_inputs_and_corrupt_outbox_content() {
     let remote =
         orchestrator_node::sync::Remote::new("http://127.0.0.1:1", &token).expect("remote");
     assert!(remote.upload_artifacts(&f.journal).await.is_err());
+    let profile = orchestrator_protocol::sync::NodeProfile {
+        platform: orchestrator_protocol::capabilities::Platform::Linux,
+        capabilities: std::collections::BTreeSet::new(),
+        capacity: 1,
+    };
+    assert!(remote.synchronize(&f.journal, &profile).await.is_err());
     pool.close().await;
 }

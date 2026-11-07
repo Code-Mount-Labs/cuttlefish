@@ -28,3 +28,6 @@ pub mod routing;
 pub mod sync;
 pub mod task;
 pub mod values;
+
+/// Installation-scoped remote access and tunnel provisioning.
+pub mod remote;

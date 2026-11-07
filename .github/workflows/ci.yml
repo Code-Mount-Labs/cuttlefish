@@ -36,6 +36,9 @@ jobs:
         run: |
           sh -n install.sh
           sh -n install/docker.sh
+          sh -n install/relay.sh
+          bash -n deploy/relay/entrypoint.sh
+          python3 experiments/relay/service_smoke.py
       - name: Validate PowerShell installers
         if: runner.os == 'Windows'
         shell: pwsh

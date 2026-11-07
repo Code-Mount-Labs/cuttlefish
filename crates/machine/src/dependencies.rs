@@ -32,7 +32,7 @@ pub async fn install_docker(interactive: bool) -> Result<(), Error> {
     };
     run_installer(command, script, interactive, Duration::from_mins(15)).await
 }
-async fn run_installer(
+pub(crate) async fn run_installer(
     mut command: Command,
     script: &str,
     interactive: bool,

@@ -1,6 +1,7 @@
 //! Outbound directory registration and enrollment. Database credentials never
 //! appear in these requests; only per-installation transport credentials do.
-use crate::{Error, settings::validate_origin, state::Machine};
+use crate::{Error, state::Machine};
+use orchestrator_protocol::remote::canonical_endpoint;
 use orchestrator_protocol::{
     ids::{GroupId, InstallationId},
     installation::{InstallationHeartbeat, InstallationRole, Registration},
@@ -32,7 +33,8 @@ impl Client {
         Self::with_builder(origin, reqwest::Client::builder())
     }
     fn with_builder(origin: &str, builder: reqwest::ClientBuilder) -> Result<Self, Error> {
-        let origin = validate_origin(origin)?;
+        let origin =
+            canonical_endpoint(origin).ok_or(Error::Invalid("invalid_service_endpoint"))?;
         let client = builder
             .timeout(Duration::from_secs(15))
             .connect_timeout(Duration::from_secs(3))
@@ -130,7 +132,8 @@ impl Machine {
         {
             return Err(Error::Dependency("registration_identity_mismatch"));
         }
-        let origin = validate_origin(&reply.router_url)?;
+        let origin = canonical_endpoint(&reply.router_url)
+            .ok_or(Error::Invalid("invalid_router_endpoint"))?;
         self.save_setting("router_origin", &origin).await?;
         self.save_setting("registered", "true").await
     }
@@ -146,18 +149,41 @@ impl Machine {
         let role = identity.registration.role;
         let router_ready = !role.has_router() || self.status().await?.state == "ready";
         let agent_ready = !role.has_agent() || agent_ready;
+        let remote = self.remote_status().await?;
+        let public = remote.public_url.unwrap_or(identity.public_origin);
         let heartbeat = InstallationHeartbeat {
-            ready: router_ready && agent_ready,
-            router_dashboard_url: role.has_router().then(|| identity.public_origin.clone()),
-            agent_dashboard_url: role.has_agent().then_some(identity.public_origin),
+            ready: router_ready
+                && agent_ready
+                && matches!(remote.state.as_str(), "local" | "ready"),
+            router_dashboard_url: role.has_router().then(|| public.clone()),
+            agent_dashboard_url: role.has_agent().then_some(public),
         };
-        let _: serde_json::Value = Client::new(&identity.platform_origin)?
+        let client = Client::new(&identity.platform_origin)?;
+        let _: serde_json::Value = client
             .post(
                 "/api/v1/installations/heartbeat",
                 Some(&identity.registration.credential),
                 &heartbeat,
             )
             .await?;
+        if !role.has_router() {
+            #[derive(Deserialize)]
+            struct Address {
+                router_url: String,
+            }
+            let reply: Result<Address, Error> = client
+                .post(
+                    "/api/v1/installations/router-address",
+                    Some(&identity.registration.credential),
+                    &serde_json::json!({}),
+                )
+                .await;
+            if let Ok(reply) = reply
+                && let Some(origin) = canonical_endpoint(&reply.router_url)
+            {
+                self.save_setting("router_origin", &origin).await?;
+            }
+        }
         Ok(())
     }
     /// Read the assigned router without exposing the database connection string.
@@ -165,9 +191,19 @@ impl Machine {
     /// # Errors
     /// Reports pending registration or local storage failure.
     pub async fn router_origin(&self) -> Result<String, Error> {
-        self.setting("router_origin")
+        let saved = self
+            .setting("router_origin")
             .await?
-            .ok_or(Error::Invalid("registration_pending"))
+            .ok_or(Error::Invalid("registration_pending"))?;
+        let identity = self.identity().await?;
+        if identity.registration.role.has_router() {
+            let local: Option<String> =
+                sqlx::query_scalar("SELECT local_origin FROM remote_access WHERE singleton=1")
+                    .fetch_one(&self.pool)
+                    .await?;
+            return Ok(local.unwrap_or(saved));
+        }
+        Ok(saved)
     }
     /// Verify an agent through this router's group-scoped directory credential.
     ///

@@ -199,3 +199,58 @@ async fn recovery_reports_backend_failure_and_invalid_router_changes_stop_the_ag
     server.abort();
     machine.close().await;
 }
+
+#[tokio::test]
+async fn ipv6_listener_and_remote_recovery_failures_keep_local_runtime_independent() {
+    let dir = tempfile::tempdir().expect("directory");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    initialize(&machine).await;
+    serve_until(
+        machine.clone(),
+        "[::1]:0".parse().expect("address"),
+        dir.path().join("missing"),
+        async { tokio::time::sleep(Duration::from_millis(30)).await },
+    )
+    .await
+    .expect("shutdown");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), recover_remote(machine.clone()))
+            .await
+            .is_err()
+    );
+    assert!(
+        serve_until(
+            machine,
+            "127.0.0.1:0".parse().expect("address"),
+            dir.path().join("missing"),
+            async {}
+        )
+        .await
+        .is_err()
+    );
+}
+
+fn failed_address(_: &tokio::net::TcpListener) -> std::io::Result<std::net::SocketAddr> {
+    Err(std::io::Error::other("address unavailable"))
+}
+#[tokio::test]
+async fn listener_address_failure_does_not_start_background_services() {
+    let dir = tempfile::tempdir().expect("directory");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    assert!(
+        serve_with_shutdown(
+            machine.clone(),
+            "127.0.0.1:0".parse().expect("address"),
+            dir.path().join("missing"),
+            Box::pin(async {}),
+            failed_address
+        )
+        .await
+        .is_err()
+    );
+    machine.close().await;
+}

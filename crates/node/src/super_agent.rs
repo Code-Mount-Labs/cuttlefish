@@ -72,7 +72,10 @@ impl Remote {
         body: Option<Value>,
     ) -> Result<Value, NodeError> {
         let mut endpoint = self.endpoint.clone();
-        endpoint.set_path(path);
+        endpoint.set_path(&format!(
+            "{}{path}",
+            self.endpoint.path().trim_end_matches("/v1/sync")
+        ));
         let mut request = self
             .client
             .request(method, endpoint)

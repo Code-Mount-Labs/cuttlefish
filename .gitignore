@@ -11,3 +11,5 @@
 *.sqlite
 *.sqlite-*
 /private/
+
+__pycache__/

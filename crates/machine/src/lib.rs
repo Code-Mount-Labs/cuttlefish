@@ -3,11 +3,13 @@
 
 pub mod auth;
 pub mod cli;
+pub mod connector;
 pub mod dependencies;
 pub mod docker;
 mod files;
 mod passwords;
 pub mod registry;
+pub mod remote;
 pub mod resources;
 pub mod runtime;
 pub mod settings;

@@ -102,7 +102,7 @@ class Installation:
         self.child = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=self.log,
                                       stderr=self.log, text=True)
         if setup:
-            self.child.stdin.write(f"{self.group}\n{'b' * 64}\n1\nFresh OS test\n{self.origin}\n")
+            self.child.stdin.write(f"{self.group}\n{'b' * 64}\n1\nFresh OS test\nlocal\n")
         self.child.stdin.close()
         wait_for(lambda: self.api("/api/local/status"), 30)
 

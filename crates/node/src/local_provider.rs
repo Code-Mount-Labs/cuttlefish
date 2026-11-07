@@ -240,7 +240,13 @@ impl LocalAgent {
             if event.pointer("/params/threadId").and_then(Value::as_str) != Some(id) {
                 continue;
             }
-            if let Some(phase) = observed_activity(LocalProvider::Codex, &event) {
+            let event_turn = event
+                .pointer("/params/turnId")
+                .or_else(|| event.pointer("/params/turn/id"))
+                .and_then(Value::as_str);
+            if event_turn == Some(turn)
+                && let Some(phase) = observed_activity(LocalProvider::Codex, &event)
+            {
                 self.activity(command, phase).await?;
             }
             match event.get("method").and_then(Value::as_str) {

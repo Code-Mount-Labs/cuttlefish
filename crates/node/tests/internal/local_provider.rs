@@ -541,7 +541,9 @@ fn provider_activity_only_reports_explicit_tools_and_never_raw_arguments() {
 async fn real_protocol_loops_persist_observed_tool_activity() {
     let (_f, a) = agent(LocalProvider::Codex).await;
     let mut input = events();
-    input.insert(3,json!({"method":"item/started","params":{"threadId":"session-one","item":{"type":"commandExecution"}}}));
+    input.insert(3,json!({"method":"item/started","params":{"threadId":"session-one","turnId":"turn-one","item":{"type":"commandExecution"}}}));
+    input.insert(3,json!({"method":"item/started","params":{"threadId":"session-one","turnId":"old-turn","item":{"type":"webSearch"}}}));
+    input.insert(3,json!({"method":"item/started","params":{"threadId":"session-one","item":{"type":"webSearch"}}}));
     a.codex(&start(), "test", None, &mut wire(&input))
         .await
         .expect("codex");
@@ -552,6 +554,14 @@ async fn real_protocol_loops_persist_observed_tool_activity() {
             .expect("activity")
             .iter()
             .any(|e| e.phase == ActivityPhase::RunningCommand)
+    );
+    assert!(
+        !a.journal
+            .pending_activity()
+            .await
+            .expect("activity")
+            .iter()
+            .any(|e| e.phase == ActivityPhase::SearchingWeb)
     );
     let (_f, a) = agent(LocalProvider::Claude).await;
     let input = vec![

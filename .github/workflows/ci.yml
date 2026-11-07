@@ -30,7 +30,22 @@ jobs:
       - name: Formatting
         run: cargo fmt --all -- --check
       - name: Lint
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Validate shell installers
+        if: runner.os != 'Windows'
+        run: |
+          sh -n install.sh
+          sh -n install/docker.sh
+      - name: Validate PowerShell installers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($path in @('install.ps1', 'install/docker.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { throw ($errors | Out-String) }
+          }
       - name: Unit and integration tests
         run: cargo test --workspace --all-targets --locked
       - name: Documentation tests
@@ -64,7 +79,7 @@ jobs:
           rustup toolchain install 1.96.1 --profile minimal --component llvm-tools-preview
           cargo install cargo-llvm-cov --version 0.9.1 --locked
       - name: Enforce 100 percent line, function, and region coverage
-        run: cargo coverage --locked
+        run: cargo coverage --features cuttlefish-machine/docker-tests --locked
       - name: Render report
         if: always()
         run: cargo llvm-cov report --html --output-dir target/coverage --ignore-filename-regex /tests/

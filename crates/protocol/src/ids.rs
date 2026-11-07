@@ -87,3 +87,19 @@ resource_id!(
     WorkspaceId,
     "A logical workspace identity, not a filesystem path."
 );
+
+impl From<InstallationId> for NodeId {
+    /// An installed agent uses the installation UUID as its transport identity.
+    /// The caller must separately enforce that the installation has an agent role.
+    fn from(value: InstallationId) -> Self {
+        Self(value.0)
+    }
+}
+
+impl InstallationId {
+    /// Generate a non-nil random installation identity.
+    #[must_use]
+    pub fn random() -> Self {
+        Self(Uuid::new_v4())
+    }
+}

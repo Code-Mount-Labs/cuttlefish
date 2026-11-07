@@ -3,6 +3,7 @@ WORKDIR /build
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates ./crates
 COPY prompts ./prompts
+COPY install ./install
 COPY web ./web
 COPY assets ./assets
 RUN cargo build --locked --release -p cuttlefish-platform

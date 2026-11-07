@@ -41,9 +41,22 @@ for execution. Agents connect to their router, retaining local SQLite journals.
 The first platform increment supports sign-up/sign-in, group creation, one-use
 enrollment invitations, an installation directory, and links supplied by installed
 services. Registration enforces exactly one router per group and requires a ready
-router before adding an agent-only installation. Installer binaries, automatic
-service setup, and the local router/agent dashboards are not released yet; the
-registry API is ready for their integration. No working install command is claimed.
+router before adding an agent-only installation. The local dashboard configures existing PostgreSQL or installs Docker-managed
+PostgreSQL on the machine. Setup can be deferred and completed later.
+
+## Install the alpha
+
+Create a group on the staging website, choose **Connect a machine**, then run:
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.1/install.sh | sh
+```
+
+The installer verifies release checksums and asks for your group ID and one-use
+enrollment code. Linux and macOS binaries support ARM64 and x86-64. Windows
+installation is deferred. This alpha runs in the foreground; automatic OS service
+registration is not yet included. Real specialist providers remain future work.
+See [local setup and database choices](docs/local-installation.md).
 
 ## Workspace
 
@@ -56,6 +69,7 @@ registry API is ready for their integration. No working install command is claim
 | `orchestrator-coordinator` | Shared collaboration records, catalog, routing, affinity and dispatch | Protocol, domain, prompts; execution crates only in tests |
 | `orchestrator-prompts` | Bounded Markdown prompt loading and bundled defaults | None |
 | `cuttlefish-platform` | Hosted accounts, groups, enrollment and installation directory | Protocol |
+| `cuttlefish-machine` | Local setup dashboard, Docker/PostgreSQL provisioning and router/agent lifecycle | Protocol, node, coordinator, prompts |
 
 The workspace uses Rust 2024 and pins its compiler in `rust-toolchain.toml`.
 `Cargo.lock` pins the resolved dependencies. There are no empty placeholder
@@ -81,7 +95,7 @@ Install the coverage driver once:
 
 ```sh
 cargo install cargo-llvm-cov --version 0.9.1 --locked
-cargo coverage --locked
+cargo coverage --features cuttlefish-machine/docker-tests --locked
 ```
 
 `cargo coverage` is an alias that fails below **100% line, function, or region
@@ -715,3 +729,5 @@ budgets, per-target approval, immutable releases and prompt loading. Model HTTP
 calls are mocked; no claim is made about real-model planning quality or real
 third-party installer behavior. See the [prompt library](prompts/README.md) for
 review and reload instructions.
+
+Local provisioning and Docker setup: [development instructions and current scope](docs/local-installation.md).

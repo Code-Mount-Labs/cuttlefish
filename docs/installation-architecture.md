@@ -36,8 +36,8 @@ not by receiving direct database credentials.
 
 ## Installation choices (registry contract)
 
-1. **Router plus agent**, the default for the first machine. Two separate
-   processes run together; sharing a computer does not merge their powers.
+1. **Router plus agent**, the default for the first machine. Separate routing and execution components
+   run together; sharing a computer does not merge their powers.
 2. **Router only**, for a dedicated server. Agents may run on laptops, workstations
    or additional servers and connect outbound.
 3. **Agent only**, available after the group has a registered, ready router.
@@ -54,9 +54,12 @@ single use, group scoped, and expire after thirty minutes. A retry of an already
 committed registration is a read of the same registration; a changed request is
 rejected. A group ID alone grants no installation authority.
 
-The interactive installer, automatic service setup, and local service dashboards
-are the next integration layer; the registry does not claim to have installed or
-started a service merely because registration succeeded.
+The `cuttlefish setup` command enrolls the installation and starts its local
+JSON API and dashboard. Database selection is durably queued in local SQLite;
+the service reconciles it independently of the browser connection. Router APIs
+become available only after the selected primary is verified and migrated.
+See [local installation](local-installation.md) for current provisioning scope.
+Registration alone does not mark a machine ready.
 
 ## Interfaces
 

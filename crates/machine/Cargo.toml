@@ -1,0 +1,38 @@
+[package]
+name = "cuttlefish-machine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+orchestrator-protocol.workspace = true
+orchestrator-prompts.workspace = true
+orchestrator-coordinator.workspace = true
+orchestrator-node = { path = "../node" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+tokio = { workspace = true, features = ["net", "signal", "time", "sync", "process", "io-util", "io-std", "rt-multi-thread"] }
+sqlx = { workspace = true, features = ["postgres", "uuid", "tls-rustls-ring-webpki"] }
+clap = { workspace = true, features = ["env"] }
+reqwest.workspace = true
+sha2.workspace = true
+argon2.workspace = true
+axum.workspace = true
+tempfile.workspace = true
+tower.workspace = true
+
+[dev-dependencies]
+cuttlefish-platform = { path = "../platform" }
+
+[lints]
+workspace = true
+
+[features]
+docker-tests = []
+
+[[bin]]
+name = "cuttlefish"
+path = "src/main.rs"

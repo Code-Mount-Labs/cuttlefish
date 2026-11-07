@@ -80,7 +80,7 @@ impl Machine {
             .await
             .map_err(|_| Error::Dependency("agent_journal_unavailable"))
     }
-    async fn chat_store(&self) -> Result<(Store, NodeToken), Error> {
+    pub(crate) async fn chat_store(&self) -> Result<(Store, NodeToken), Error> {
         let own = self.identity().await?.registration;
         let store = self.execution_store().await?;
         let token = own.credential;

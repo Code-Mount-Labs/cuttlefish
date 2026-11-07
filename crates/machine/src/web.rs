@@ -65,6 +65,10 @@ pub fn router(machine: Machine) -> Router {
             "/api/local/workspaces",
             get(local_workspaces).post(create_workspace),
         )
+        .route(
+            "/api/local/automations",
+            get(automations).post(change_automation),
+        )
         .route("/api/local/chat/workspaces", get(chat_workspaces))
         .route(
             "/api/local/chat",
@@ -188,7 +192,7 @@ async fn configuration(
     authorize(&machine, &headers, false).await?;
     let identity = machine.identity().await?;
     Ok(Json(
-        json!({"features":{"chat":true,"attachments":true,"activity":true},"group_id":identity.registration.group_id,"installation_id":identity.registration.installation_id,"name":identity.registration.name,"role":identity.registration.role,"database":machine.status().await?,"model":machine.model_status().await?,"remote":machine.remote_status().await?}),
+        json!({"features":{"chat":true,"attachments":true,"activity":true,"automations":true},"group_id":identity.registration.group_id,"installation_id":identity.registration.installation_id,"name":identity.registration.name,"role":identity.registration.role,"database":machine.status().await?,"model":machine.model_status().await?,"remote":machine.remote_status().await?}),
     ))
 }
 async fn database(
@@ -389,4 +393,23 @@ async fn chat_activity(
 ) -> Result<Json<serde_json::Value>, Error> {
     authorize(&machine, &headers, false).await?;
     Ok(Json(machine.chat_activity(thread).await?))
+}
+
+async fn automations(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, Error> {
+    authorize(&machine, &headers, false).await?;
+    require_router(&machine).await?;
+    Ok(Json(machine.automations().await?))
+}
+async fn change_automation(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+    Json(change): Json<crate::automations::Change>,
+) -> Result<Json<serde_json::Value>, Error> {
+    authorize(&machine, &headers, true).await?;
+    require_router(&machine).await?;
+    machine.change_automation(change).await?;
+    Ok(Json(json!({"ok":true})))
 }

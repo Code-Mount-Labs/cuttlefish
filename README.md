@@ -15,7 +15,7 @@ SQLite journal and supervised specialist processes. Specialists can use the dete
 local Codex/Claude Code adapter. A separate coordination service authenticates
 nodes and stores shared routing context in PostgreSQL. It has no execution powers.
 It now makes constrained LLM routing decisions and delivers tasks with durable
-thread/session affinity and conservative failover. The current development increment adds [chat, attachments, and local providers](docs/chat-and-providers.md). A separate JSON-first hosted platform
+thread/session affinity and conservative failover. The current development increment adds [chat, attachments, and local providers](docs/chat-and-providers.md), plus [scheduled routes and reusable workflows](docs/routes-and-workflows.md). A separate JSON-first hosted platform
 now provides accounts, groups, and the installation directory. The node can now plan goals, delegate child tasks,
 track progress, and propose catalog-backed learning with human approval.
 See [Super-agent collaboration](#super-agent-collaboration) and the

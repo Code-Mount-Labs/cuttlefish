@@ -25,7 +25,10 @@ export function Sidebar({ children }: { children: ReactNode }) {
           <PanelLeft />
         </Button>
       </DialogTrigger>
-      <DialogContent className="mobile-sidebar" aria-describedby={undefined}>
+      <DialogContent
+        className="mobile-sidebar top-0 left-0 block h-dvh max-h-dvh w-[85vw] max-w-[280px] translate-x-0 translate-y-0 rounded-none bg-sidebar px-3 py-4 sm:max-w-[280px]"
+        aria-describedby={undefined}
+      >
         <DialogTitle className="sr-only">Navigation</DialogTitle>
         <div
           role="presentation"

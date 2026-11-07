@@ -19,6 +19,7 @@ const workspace = {
   provider: "codex",
   allow_edits: true,
 };
+const automationData = { workflows: [], routes: [], runs: [] };
 const requests = [],
   uploads = [];
 let accepted = null,
@@ -79,6 +80,14 @@ const server = createServer(async (req, res) => {
         remote: { revision: 1, choice: { mode: "local" }, state: "local" },
         model: { configured: false },
       };
+    else if (route === "automations") {
+      if (req.method === "POST") {
+        if (body.type === "save_workflow") automationData.workflows = [{...body.workflow, revision: body.workflow.revision + 1}];
+        if (body.type === "save_route") automationData.routes = [{...body.route, revision: body.route.revision + 1, next_run_ms: body.route.first_run_ms}];
+        if (body.type === "run") automationData.runs = [{id:body.run_id,workflow_id:body.workflow_id,route_id:null,thread_id:body.run_id,created_ms:Date.now(),state:"pending",error:null}];
+        value = {ok:true};
+      } else value = automationData;
+    }
     else if (route === "chat/workspaces") value = [{ workspace }];
     else if (route === "chat" && req.method === "GET")
       value = accepted
@@ -248,6 +257,55 @@ try {
   await until(() =>
     evaluate("document.getElementById('chat-workspace')?.options.length===1"),
   );
+  const themeMetrics = await evaluate(`(() => {
+    const root = getComputedStyle(document.documentElement);
+    const input = getComputedStyle(document.getElementById('chat-search'));
+    const send = getComputedStyle(document.getElementById('chat-send'));
+    return {rootSize:root.fontSize,inputHeight:input.height,inputBorder:input.borderTopWidth,sendWidth:send.width,sendHeight:send.height,card:root.getPropertyValue('--card'),background:root.getPropertyValue('--background')};
+  })()`);
+  assert.equal(themeMetrics.rootSize, '16px', 'browser default scale is preserved');
+  assert.equal(themeMetrics.inputHeight, '36px', 'shadcn input size wins over layout CSS');
+  assert.equal(themeMetrics.inputBorder, '1px', 'search retains its input treatment');
+  assert.equal(themeMetrics.sendWidth, '36px', 'shadcn icon button sizing');
+  assert.equal(themeMetrics.sendHeight, '36px');
+  assert.notEqual(themeMetrics.card, themeMetrics.background, 'card and page tokens remain independent');
+  const darkBackground = await evaluate("getComputedStyle(document.body).backgroundColor");
+  await evaluate("document.documentElement.classList.remove('dark')");
+  assert.notEqual(await evaluate("getComputedStyle(document.body).backgroundColor"), darkBackground, 'light palette responds to theme class');
+  await evaluate("document.documentElement.classList.add('dark'); document.getElementById('chat-message').focus()");
+  await until(() => evaluate("getComputedStyle(document.getElementById('chat-message')).boxShadow !== 'none'"));
+  await evaluate("document.querySelector('button[aria-label=Plugins]').click()");
+  await until(() => evaluate("document.body.textContent.includes('No plugins installed.')"));
+  await evaluate("document.querySelector('button[aria-label=Workflows]').click()");
+  await until(() => evaluate("document.querySelector('.section-header button')!==null"));
+  await evaluate("document.querySelector('.section-header button').click()");
+  await until(() => evaluate("document.querySelector('[role=dialog] textarea')!==null"));
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('[data-slot=dialog-title]')).fontSize"), '18px', 'dialog typography is not reset by global headings');
+  await evaluate("Promise.all(document.getAnimations().filter(a => a.effect.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})))");
+  const editorScreenshot = await cmd("Page.captureScreenshot", {format:"png"});
+  await writeFile("/tmp/cuttlefish-workflow-editor.png",Buffer.from(editorScreenshot.data,"base64"));
+  await evaluate(`document.querySelector('[role=dialog] input[name=name]').value='Project review';document.querySelector('[role=dialog] textarea').value='Review recent project changes and summarize the next steps.';document.querySelector('[role=dialog] form').requestSubmit()`);
+  await until(() => evaluate("document.querySelector('button[aria-label=\"Edit Project review\"]')!==null"));
+  await evaluate("[...document.querySelectorAll('.automation-list button')].find(b=>b.textContent==='Run').click()");
+  await until(() => evaluate("document.body.textContent.includes('queued. Open the run')"));
+  await evaluate("document.querySelector('button[aria-label=Routes]').click()");
+  await until(() => evaluate("document.querySelector('.section-header button')?.disabled===false"));
+  await evaluate("document.querySelector('.section-header button').click()");
+  await until(() => evaluate("document.querySelector('[role=dialog] input[name=first]')!==null"));
+  await evaluate(`document.querySelector('[role=dialog] input[name=name]').value='Morning review';document.querySelector('[role=dialog] form').requestSubmit()`);
+  await until(() => evaluate("document.querySelector('button[aria-label=\"Edit Morning review\"]')!==null"));
+  await evaluate("[...document.querySelectorAll('.automation-list button')].find(b=>b.textContent==='Pause').click()");
+  await until(() => evaluate("document.body.textContent.includes('Paused')"));
+  await evaluate("[...document.querySelectorAll('.automation-list button')].find(b=>b.textContent==='Resume').click()");
+  await until(() => evaluate("document.body.textContent.includes('Next run')"));
+  await evaluate("Promise.all(document.getAnimations().filter(a => a.effect.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})))");
+  const routeScreenshot = await cmd("Page.captureScreenshot", {format:"png"});
+  await writeFile("/tmp/cuttlefish-routes-desktop.png",Buffer.from(routeScreenshot.data,"base64"));
+  await evaluate("document.querySelector('button[aria-label=Workflows]').click()");
+  await evaluate("Promise.all(document.getAnimations().filter(a => a.effect.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})))");
+  const workflowScreenshot = await cmd("Page.captureScreenshot", {format:"png"});
+  await writeFile("/tmp/cuttlefish-workflows-desktop.png",Buffer.from(workflowScreenshot.data,"base64"));
+  await evaluate("document.querySelector('button[aria-label=Chats]').click()");
   await writeFile(join(directory, "costs.csv"), "item,amount\nDesign,42\n");
   const { root: documentRoot } = await cmd("DOM.getDocument");
   const { nodeId } = await cmd("DOM.querySelector", {
@@ -324,6 +382,7 @@ try {
     await evaluate("document.documentElement.scrollWidth>innerWidth"),
     false,
   );
+  await evaluate("Promise.all(document.getAnimations().filter(a => a.effect.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})))");
   const desktopScreenshot = await cmd("Page.captureScreenshot", {
     format: "png",
   });
@@ -371,6 +430,7 @@ try {
     [],
     "UI must respect the production content security policy",
   );
+  await evaluate("Promise.all(document.getAnimations().filter(a => a.effect.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})))");
   const screenshot = await cmd("Page.captureScreenshot", { format: "png" });
   await writeFile(
     "/tmp/cuttlefish-react-mobile.png",
@@ -383,7 +443,7 @@ try {
     0,
   );
   console.log(
-    "PASS: attachment upload, durable exact retry after reload, safe Markdown, responsive layout, and sign-out cleanup",
+    "PASS: workflows, scheduled routes, navigation, attachments, durable retries, safe Markdown, responsive layout, and sign-out cleanup",
   );
 } finally {
   ws?.close();

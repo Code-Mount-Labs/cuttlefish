@@ -41,3 +41,6 @@ mod attachments;
 
 #[path = "../suites/activity.rs"]
 mod activity;
+
+#[path = "../suites/automations.rs"]
+mod automations;

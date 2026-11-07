@@ -66,6 +66,7 @@ export function PlatformApp() {
         <nav className="platform-nav" aria-label="Workspace">
           <Button
             variant="ghost"
+            className="justify-start"
             data-navigate
             aria-current={page === "groups" ? "page" : undefined}
             onClick={() => setPage("groups")}
@@ -75,6 +76,7 @@ export function PlatformApp() {
           </Button>
           <Button
             variant="ghost"
+            className="justify-start"
             data-navigate
             aria-current={page === "guide" ? "page" : undefined}
             onClick={() => setPage("guide")}
@@ -84,7 +86,11 @@ export function PlatformApp() {
           </Button>
         </nav>
         <div className="sidebar-bottom">
-          <Button variant="ghost" onClick={() => void logout()}>
+          <Button
+            variant="ghost"
+            className="justify-start font-normal text-muted-foreground"
+            onClick={() => void logout()}
+          >
             <LogOut />
             Sign out
           </Button>

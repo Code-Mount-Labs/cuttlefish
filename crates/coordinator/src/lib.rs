@@ -57,3 +57,5 @@ pub enum Error {
 pub mod chat;
 
 pub mod attachments;
+
+pub mod automations;

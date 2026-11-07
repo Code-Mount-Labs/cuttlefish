@@ -1,3 +1,5 @@
+import { AutomationPage } from "@/features/automations/automation-page";
+import { MessageSquare, Repeat2, Workflow, Puzzle } from "lucide-react";
 import {
   NativeSelect,
   NativeSelectOption,
@@ -24,6 +26,9 @@ export function ChatPage({
   onSettings: () => void;
   onLogout: () => void;
 }) {
+  const [section, setSection] = useState<
+    "chats" | "routes" | "workflows" | "plugins"
+  >("chats");
   const chat = useChat(active, config.features?.activity === true),
     [search, setSearch] = useState("");
   const scroll = useRef<HTMLDivElement>(null),
@@ -57,60 +62,106 @@ export function ChatPage({
             : "");
   return (
     <div className="app-layout" hidden={!active} id="chat-panel">
-      <Sidebar>
-        <div className="brand">Cuttlefish</div>
-        <Button
-          id="new-chat"
-          variant="ghost"
-          className="nav-action"
-          disabled={locked}
-          data-navigate
-          onClick={() => chat.navigate(null)}
-        >
-          <Plus />
-          New chat
-        </Button>
-        <div className="chat-search">
-          <Search size={15} />
-          <Input
-            id="chat-search"
-            aria-label="Search chats"
-            placeholder="Search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <nav id="chat-list" className="chat-list" aria-label="Chats">
-          {chat.conversations.data
-            ?.filter((c) =>
-              (c.title ?? "Chat").toLowerCase().includes(search.toLowerCase()),
-            )
-            .map((c) => (
-              <Button
-                key={c.thread_id}
-                variant="ghost"
-                disabled={locked}
-                data-navigate
-                aria-current={c.thread_id === chat.thread ? "page" : undefined}
-                title={c.title ?? "Chat"}
-                onClick={() => chat.navigate(c.thread_id)}
-              >
-                {c.title ?? "Chat"}
-              </Button>
-            ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <Button variant="ghost" data-navigate onClick={onSettings}>
+      <nav className="primary-rail" aria-label="Primary navigation">
+        {(
+          [
+            { id: "chats", label: "Chats", icon: MessageSquare },
+            { id: "routes", label: "Routes", icon: Repeat2 },
+            { id: "workflows", label: "Workflows", icon: Workflow },
+            { id: "plugins", label: "Plugins", icon: Puzzle },
+          ] as const
+        ).map((item) => (
+          <Button
+            key={item.id}
+            variant="ghost"
+            size="icon"
+            title={item.label}
+            aria-label={item.label}
+            aria-current={section === item.id ? "page" : undefined}
+            onClick={() => setSection(item.id)}
+          >
+            <item.icon />
+          </Button>
+        ))}
+        <div className="rail-bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Settings"
+            title="Settings"
+            onClick={onSettings}
+          >
             <Settings />
-            Settings
           </Button>
-          <Button id="logout" variant="ghost" onClick={onLogout}>
+          <Button
+            id="logout"
+            variant="ghost"
+            size="icon"
+            aria-label="Sign out"
+            title="Sign out"
+            onClick={onLogout}
+          >
             <LogOut />
-            Sign out
           </Button>
         </div>
-      </Sidebar>
-      <main className="conversation">
+      </nav>
+      {section === "chats" && (
+        <Sidebar>
+          <div className="brand">Cuttlefish</div>
+          <Button
+            id="new-chat"
+            variant="ghost"
+            className="w-full justify-start"
+            disabled={locked}
+            data-navigate
+            onClick={() => {
+              setSection("chats");
+              chat.navigate(null);
+            }}
+          >
+            <Plus />
+            New chat
+          </Button>
+          <div className="chat-search">
+            <Search size={15} />
+            <Input
+              id="chat-search"
+              aria-label="Search chats"
+              placeholder="Search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <nav id="chat-list" className="chat-list" aria-label="Chats">
+            {chat.conversations.data
+              ?.filter((c) =>
+                (c.title ?? "Chat")
+                  .toLowerCase()
+                  .includes(search.toLowerCase()),
+              )
+              .map((c) => (
+                <Button
+                  key={c.thread_id}
+                  className="my-0.5 block w-full truncate text-left font-normal"
+                  variant="ghost"
+                  disabled={locked}
+                  data-navigate
+                  aria-current={
+                    c.thread_id === chat.thread ? "page" : undefined
+                  }
+                  title={c.title ?? "Chat"}
+                  onClick={() => {
+                    setSection("chats");
+                    chat.navigate(c.thread_id);
+                  }}
+                >
+                  {c.title ?? "Chat"}
+                </Button>
+              ))}
+          </nav>
+        </Sidebar>
+      )}
+      <main className="conversation" hidden={section !== "chats"}>
         <header className="conversation-header">
           <label className="sr-only" htmlFor="chat-workspace">
             Workspace and provider
@@ -213,6 +264,22 @@ export function ChatPage({
           />
         </div>
       </main>
+      {(section === "routes" || section === "workflows") && (
+        <AutomationPage
+          key={section}
+          section={section}
+          onOpenChat={(id) => {
+            setSection("chats");
+            chat.navigate(id);
+          }}
+        />
+      )}
+      {section === "plugins" && (
+        <main className="automation-page">
+          <h1>Plugins</h1>
+          <p className="empty-section">No plugins installed.</p>
+        </main>
+      )}
     </div>
   );
 }

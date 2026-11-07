@@ -54,3 +54,5 @@ pub enum Error {
 #[cfg(test)]
 #[path = "../tests/internal/mod.rs"]
 mod tests;
+
+mod automations;

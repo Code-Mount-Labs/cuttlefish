@@ -66,3 +66,5 @@ The primary action is writing a message. Keep the sidebar compact, the transcrip
 Design guidance reviewed: https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md . shadcn/ui components originate from https://ui.shadcn.com (MIT).
 
 The shadcn project conventions were verified with the official [shadcn skill](https://github.com/shadcn-ui/ui/blob/main/skills/shadcn/SKILL.md).
+
+Theme tokens live in `src/theme.css`, using the shadcn neutral light/dark palette. `src/styles.css` contains base rules and layout rules in explicit cascade layers. Keep application layout in `@layer components` so shadcn utilities win; do not add unlayered selectors or `!important` overrides for controls. The root keeps the browser's default font size. Both dashboards currently start in dark mode. Browser checks verify computed control sizes, dialog typography, theme switching, and keyboard focus rings.

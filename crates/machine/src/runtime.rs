@@ -78,17 +78,19 @@ async fn serve_with_shutdown(
         .await?;
     let remote = tokio::spawn(recover_remote(machine.clone()));
     let ready = Arc::new(AtomicBool::new(false));
+    let scheduling = tokio::spawn(schedule(machine.clone()));
     let reporting = tokio::spawn(report(machine.clone(), ready.clone()));
     let recovering = tokio::spawn(recover(machine.clone()));
     let execution = tokio::spawn(agent(machine.clone(), worker, ready));
     let result = axum::serve(listener, crate::web::router(machine.clone()))
         .with_graceful_shutdown(shutdown)
         .await;
+    scheduling.abort();
     remote.abort();
     reporting.abort();
     recovering.abort();
     execution.abort();
-    let _ = tokio::join!(reporting, recovering, execution, remote);
+    let _ = tokio::join!(reporting, recovering, execution, remote, scheduling);
     machine.close().await;
     result.map_err(Error::from)
 }
@@ -211,6 +213,17 @@ async fn recover_remote(machine: Machine) {
         interval.tick().await;
         if machine.recover_remote().await.is_err() {
             eprintln!("Remote access needs attention; local work continues.");
+        }
+    }
+}
+
+async fn schedule(machine: Machine) {
+    let mut interval = tokio::time::interval(Duration::from_secs(5));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        interval.tick().await;
+        if machine.reconcile_automations().await.is_err() {
+            eprintln!("Scheduled tasks will retry when the router and database are ready.");
         }
     }
 }

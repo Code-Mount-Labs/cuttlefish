@@ -589,3 +589,185 @@ async fn workspace_setup_and_chat_fail_before_using_an_uninitialized_agent() {
     assert!(provider_path_in(LocalProvider::Codex, None, Some("invalid:home".into())).is_none());
     machine.close().await;
 }
+
+#[tokio::test]
+async fn workflow_http_and_scheduler_use_the_existing_dispatcher() {
+    let dir = tempfile::tempdir().expect("dir");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    initialize(&machine).await;
+    let database = Database::new().await;
+    let store = Store::open(&database.url).await.expect("store");
+    machine.execution.set(store.clone()).expect("execution");
+    machine.chats().await.expect("enroll router");
+    let journal = advertise_workspace(&machine, &store).await;
+    let app = crate::web::router(machine.clone());
+    let cookie = sign_in(&app, &machine).await;
+    let path = "/api/local/automations";
+    let workflow = json!({"id":Uuid::from_u128(700),"revision":0,"name":"Review","workspace_id":Uuid::from_u128(5),"instructions":"Review the project"});
+    let save = json!({"type":"save_workflow","workflow":workflow});
+    check_automation_access(&app, &cookie, save.clone()).await;
+    assert_eq!(
+        request(
+            &app,
+            path,
+            Some(save.clone()),
+            Some(&cookie),
+            Some("http://127.0.0.1:8080")
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert!(
+        !request(
+            &app,
+            path,
+            Some(save),
+            Some(&cookie),
+            Some("http://127.0.0.1:8080")
+        )
+        .await
+        .0
+        .is_success()
+    );
+    let route = json!({"type":"save_route","route":{"id":Uuid::from_u128(701),"revision":0,"name":"Daily","workflow_id":Uuid::from_u128(700),"enabled":false,"first_run_ms":0,"interval_minutes":1440}});
+    assert_eq!(
+        request(
+            &app,
+            path,
+            Some(route),
+            Some(&cookie),
+            Some("http://127.0.0.1:8080")
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let run =
+        json!({"type":"run","workflow_id":Uuid::from_u128(700),"run_id":Uuid::from_u128(702)});
+    assert_eq!(
+        request(
+            &app,
+            path,
+            Some(run),
+            Some(&cookie),
+            Some("http://127.0.0.1:8080")
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    machine.reconcile_automations().await.expect("dispatch");
+    assert_eq!(
+        request(&app, path, None, Some(&cookie), None).await.0,
+        StatusCode::OK
+    );
+    let turns = machine
+        .chat(Uuid::from_u128(702).try_into().expect("thread"))
+        .await
+        .expect("chat");
+    assert_eq!(turns.len(), 1);
+    machine.reconcile_automations().await.expect("idempotent");
+    assert_eq!(
+        machine
+            .chat(Uuid::from_u128(702).try_into().expect("thread"))
+            .await
+            .expect("chat")
+            .len(),
+        1
+    );
+    journal.close().await;
+    machine.close().await;
+    database.close().await;
+}
+
+async fn check_automation_access(app: &axum::Router, cookie: &str, save: serde_json::Value) {
+    let path = "/api/local/automations";
+    assert_eq!(
+        request(app, path, None, None, None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(
+            app,
+            path,
+            Some(save.clone()),
+            Some(cookie),
+            Some("https://evil.example")
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn automation_facade_handles_missing_setup_and_storage_failures() {
+    let dir = tempfile::tempdir().expect("dir");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    let command = || crate::automations::Change::Run {
+        workflow_id: Uuid::from_u128(700),
+        run_id: Uuid::from_u128(702),
+    };
+    assert!(machine.automations().await.is_err());
+    assert!(machine.change_automation(command()).await.is_err());
+    assert!(machine.reconcile_automations().await.is_err());
+    initialize(&machine).await;
+    let database = Database::new().await;
+    let store = Store::open(&database.url).await.expect("store");
+    machine.execution.set(store.clone()).expect("execution");
+    machine.chats().await.expect("enroll");
+    let journal = advertise_workspace(&machine, &store).await;
+    let raw = sqlx::PgPool::connect(&database.url).await.expect("raw");
+    let workflow = orchestrator_coordinator::automations::Workflow {
+        id: Uuid::from_u128(700),
+        revision: 0,
+        name: "Review".into(),
+        workspace_id: Uuid::from_u128(5),
+        instructions: "Review".into(),
+    };
+    machine
+        .change_automation(crate::automations::Change::SaveWorkflow { workflow })
+        .await
+        .expect("save");
+    machine.change_automation(command()).await.expect("queue");
+    for (fault, repair) in [
+        (
+            "ALTER TABLE scheduled_routes RENAME COLUMN enabled TO hidden",
+            "ALTER TABLE scheduled_routes RENAME COLUMN hidden TO enabled",
+        ),
+        (
+            "ALTER TABLE workflow_runs RENAME COLUMN request TO hidden",
+            "ALTER TABLE workflow_runs RENAME COLUMN hidden TO request",
+        ),
+        (
+            "CREATE FUNCTION reject_ack() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''failed''; END'; CREATE TRIGGER reject_ack BEFORE UPDATE ON workflow_runs FOR EACH ROW EXECUTE FUNCTION reject_ack()",
+            "DROP TRIGGER reject_ack ON workflow_runs",
+        ),
+    ] {
+        sqlx::raw_sql(fault).execute(&raw).await.expect("inject");
+        assert!(machine.reconcile_automations().await.is_err());
+        sqlx::raw_sql(repair).execute(&raw).await.expect("repair");
+    }
+    sqlx::query("ALTER TABLE workflows RENAME COLUMN definition TO hidden")
+        .execute(&raw)
+        .await
+        .expect("fault");
+    assert!(machine.automations().await.is_err());
+    let app = crate::web::router(machine.clone());
+    let cookie = sign_in(&app, &machine).await;
+    assert!(
+        !request(&app, "/api/local/automations", None, Some(&cookie), None)
+            .await
+            .0
+            .is_success()
+    );
+    raw.close().await;
+    journal.close().await;
+    machine.close().await;
+    database.close().await;
+}

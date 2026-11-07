@@ -334,3 +334,52 @@ async fn unavailable_provider_catalog_does_not_stop_node_heartbeats() {
     server.abort();
     machine.close().await;
 }
+
+#[tokio::test]
+async fn agent_only_installation_does_not_run_group_schedules() {
+    let dir = tempfile::tempdir().expect("dir");
+    let machine = Machine::open(dir.path(), Arc::new(crate::tests::Backend::default()))
+        .await
+        .expect("machine");
+    let mut registration = crate::tests::registration();
+    registration.role = orchestrator_protocol::installation::InstallationRole::Agent;
+    machine
+        .initialize(
+            &registration,
+            "http://127.0.0.1:8000",
+            "http://127.0.0.1:8080",
+        )
+        .await
+        .expect("initialize");
+    machine
+        .reconcile_automations()
+        .await
+        .expect("agent skips scheduling");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(25), schedule(machine.clone()))
+            .await
+            .is_err()
+    );
+    let app = crate::web::router(machine.clone());
+    let cookie = crate::tests::http::sign_in(&app, &machine).await;
+    for body in [
+        None,
+        Some(
+            serde_json::json!({"type":"run","workflow_id":uuid::Uuid::from_u128(1),"run_id":uuid::Uuid::from_u128(2)}),
+        ),
+    ] {
+        assert!(
+            !crate::tests::http::request(
+                &app,
+                "/api/local/automations",
+                body,
+                Some(&cookie),
+                Some("http://127.0.0.1:8080")
+            )
+            .await
+            .0
+            .is_success()
+        );
+    }
+    machine.close().await;
+}

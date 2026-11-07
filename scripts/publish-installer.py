@@ -34,7 +34,7 @@ assert re.fullmatch(r'[a-f0-9]{40}', source)
 manifest = api('contents/Cargo.toml?ref=' + source)
 version = tomllib.loads(base64.b64decode(manifest['content']).decode())['workspace']['package']['version']
 assert tag == 'v' + version
-required_jobs = {'Full source coverage', 'Test (ubuntu-latest)', 'Test (macos-latest)', 'Test (windows-latest)'}
+required_jobs = {'React frontend', 'Full source coverage', 'Test (ubuntu-latest)', 'Test (macos-latest)', 'Test (windows-latest)'}
 checks = api('actions/workflows/ci.yml/runs?head_sha=' + source + '&status=success&per_page=100')['workflow_runs']
 assert checks, 'No passing Rust CI run for the exact build source'
 verified = False
@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory(prefix='cuttlefish-release-') as folder:
     assets.append(str(sums))
     hashes[sums.name] = hashlib.sha256(sums.read_bytes()).hexdigest()
     notes = root / 'notes.md'
-    notes.write_text(f'''Cuttlefish {tag} adds managed HTTPS through the Cuttlefish relay, without a personal domain or Cloudflare account.
+    notes.write_text(f'''Cuttlefish {tag} adds the new chat dashboard, scheduled Routes, reusable Workflows, and local Codex/Claude Code providers over managed HTTPS.
 
 Create a group at https://platform-production-105c.up.railway.app, choose **Connect a machine**, then run:
 
@@ -73,11 +73,13 @@ curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/{reposit
 
 Choose **managed**, **local**, or an existing HTTPS address. Complete first-time administrator setup locally before managed access activates.
 
-Includes installation-scoped authorization, durable remote settings and revocation, and supervised native connectors that recover after supervisor or relay restart. Customer execution PostgreSQL stays separate from the hosted directory database.
+Includes the selected Mira/cyan shadcn preset with locally bundled fonts, attachments and artifacts, provider progress, durable workflow runs, and scheduled task recovery. Existing provider sign-ins stay on the execution machine. Installation-scoped relay authorization and customer-owned PostgreSQL remain separate from the hosted directory database.
+
+To update an existing installation without starting setup again, run the same installer with `CUTTLEFISH_NO_SETUP=1`, then restart Cuttlefish using its existing state directory. Back up the state directory and execution database before updating.
 
 Linux and macOS: ARM64 and x86-64. All archives are checksum-verified. [Build verification]({run['html_url']}) and [Rust CI]({check['html_url']}) passed, including the unchanged 100% line, function and region coverage gate.
 
-This alpha uses Cuttlefish staging. The main process runs in the foreground; the connector has its own OS service. Public relay access supports JSON polling; streaming/WebSockets, Windows installation and live specialist providers remain deferred.
+This alpha uses Cuttlefish staging. The main process runs in the foreground; the connector has its own OS service. Public relay access supports JSON polling; streaming/WebSockets and Windows installation remain deferred. Routes use elapsed intervals rather than calendar cron; Plugins is reserved for future integrations.
 ''')
     release = next((item for item in api('releases?per_page=100') if item['tag_name'] == tag), None)
     if release is None:

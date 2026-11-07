@@ -1,7 +1,6 @@
 # Chat, files, and local providers
 
-This increment adds the chat surface and real local provider adapters. It is not
-included in the published `v0.2.0-alpha.2` installer. The release gate remains 100%
+The `v0.2.0-alpha.3` release includes the chat surface and real local provider adapters. The release gate remains 100%
 line, function, and region coverage; passing a live demo does not bypass that gate.
 
 ## Setup

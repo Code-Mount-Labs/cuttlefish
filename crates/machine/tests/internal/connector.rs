@@ -99,6 +99,11 @@ fn service_manifests_escape_paths_and_reject_unsupported_platforms() {
     assert!(service_unit("windows", "label", binary, config).is_err());
     assert!(service_unit("linux", "label", Path::new("/bad\n"), config).is_err());
     let dir = tempfile::tempdir().expect("directory");
+    assert!(
+        NativeConnector::new(dir.path())
+            .plan(&lease(), "x", "http://127.0.0.1", "windows")
+            .is_err()
+    );
     let target = dir.path().join("file");
     std::fs::create_dir(&target).expect("directory");
     assert!(write_once(dir.path(), &target, b"x").is_err());

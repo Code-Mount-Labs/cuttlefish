@@ -7,7 +7,7 @@ registered router; agent-only enrollment requires that router to be ready.
 ## Install a release
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.1/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.2/install.sh | sh
 ```
 
 Linux and macOS releases include ARM64 and x86-64 binaries. Windows installation
@@ -23,10 +23,11 @@ cargo build --locked -p cuttlefish-machine -p orchestrator-node --bins
 ```
 
 Setup asks for the group ID, a one-use invitation from the hosted dashboard, a
-role, a machine name, and its reachable dashboard/router origin. The default
-origin binds to loopback. For remote access, supply a reachable HTTPS origin and
-configure a reverse proxy or private tunnel. `--listen` controls the local bind
-address. Registration never opens laptop ports automatically.
+role, a machine name, and remote access: local-only, managed HTTPS, or an
+existing HTTPS address. Managed access uses the Cuttlefish relay with an outbound
+connection; no personal domain or Cloudflare account is needed. `--listen`
+controls the local bind address, which defaults to loopback. An existing HTTPS
+address requires your own reverse proxy or tunnel. See [remote access](remote-access.md).
 
 The terminal prints a one-time local setup code. Open the dashboard, enter that
 code, and create the local administrator. The hosted account and this local
@@ -36,8 +37,9 @@ state directory and listener settings.
 
 The shell bootstrap downloads versioned, checksum-verified release archives.
 Windows scripts remain experimental and are not a supported installation path.
-The current service runs in the foreground; OS service registration and automatic
-startup at login or boot are not yet implemented.
+The main Cuttlefish process runs in the foreground; automatic startup for that
+process is not yet implemented. The managed relay connector has its own native
+OS service and survives supervisor restart.
 
 ## Database choices
 

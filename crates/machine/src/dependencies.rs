@@ -43,12 +43,19 @@ async fn run_installer(
         command.stdout(Stdio::null()).stderr(Stdio::null());
     }
     let mut child = command.spawn()?;
-    let input = child.stdin.take();
-    complete_installer(input, child.wait(), script, deadline).await
+    let input = child
+        .stdin
+        .take()
+        .map(|input| Box::new(input) as InstallerInput);
+    complete_installer(input, Box::pin(child.wait()), script, deadline).await
 }
+type InstallerInput = Box<dyn tokio::io::AsyncWrite + Unpin + Send>;
+type ProcessWait<'a> = std::pin::Pin<
+    Box<dyn std::future::Future<Output = std::io::Result<std::process::ExitStatus>> + Send + 'a>,
+>;
 async fn complete_installer(
-    input: Option<impl tokio::io::AsyncWrite + Unpin>,
-    wait: impl std::future::Future<Output = std::io::Result<std::process::ExitStatus>>,
+    input: Option<InstallerInput>,
+    wait: ProcessWait<'_>,
     script: &str,
     deadline: Duration,
 ) -> Result<(), Error> {

@@ -26,7 +26,7 @@ async fn agent_startup_errors_leave_the_dashboard_runtime_independent() {
     std::fs::remove_file(dir.path().join("agent")).expect("remove blocker");
     assert!(
         tokio::time::timeout(
-            Duration::from_millis(20),
+            Duration::from_secs(2),
             run_agent(&machine, worker.path().into(), ready.clone())
         )
         .await
@@ -93,6 +93,12 @@ async fn reporting_and_recovery_errors_do_not_end_their_loops() {
     )
     .await
     .expect("no agent requested");
+    agent(
+        machine.clone(),
+        dir.path().join("missing"),
+        Arc::new(AtomicBool::new(true)),
+    )
+    .await;
     sqlx::query("UPDATE resources SET state='provisioning',spec='{}'")
         .execute(&machine.pool)
         .await
@@ -114,4 +120,69 @@ fn native_platform_classification_handles_supported_hosts() {
     assert_eq!(native_platform("windows"), Platform::Windows);
     assert_eq!(native_platform("linux"), Platform::Linux);
     assert_eq!(native_platform("macos"), Platform::MacOs);
+}
+
+#[tokio::test]
+async fn recovery_reports_backend_failure_and_invalid_router_changes_stop_the_agent() {
+    let dir = tempfile::tempdir().expect("directory");
+    let backend = Arc::new(Backend::default());
+    backend.fail.store(true, Ordering::SeqCst);
+    let machine = Machine::open(dir.path(), backend).await.expect("machine");
+    initialize(&machine).await;
+    machine
+        .select_database(crate::resources::DatabaseChoice::Existing {
+            url: "postgresql://host/db".into(),
+        })
+        .await
+        .expect("select");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), recover(machine.clone()))
+            .await
+            .is_err()
+    );
+    assert_eq!(machine.status().await.expect("status").state, "failed");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener");
+    machine
+        .save_setting(
+            "router_origin",
+            &format!("http://{}", listener.local_addr().expect("address")),
+        )
+        .await
+        .expect("router");
+    let change = machine.clone();
+    let app = axum::Router::new().route(
+        "/api/node/enroll",
+        axum::routing::post(move || {
+            let machine = change.clone();
+            async move {
+                machine
+                    .save_setting("router_origin", "invalid")
+                    .await
+                    .expect("change origin");
+                axum::Json(serde_json::json!({"ok":true}))
+            }
+        }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("server");
+    });
+    let worker = tempfile::NamedTempFile::new().expect("worker");
+    let result = tokio::time::timeout(
+        Duration::from_secs(3),
+        run_agent(
+            &machine,
+            worker.path().into(),
+            Arc::new(AtomicBool::new(false)),
+        ),
+    )
+    .await
+    .expect("stops after origin change");
+    assert!(matches!(
+        result,
+        Err(Error::Dependency("invalid_router_configuration"))
+    ));
+    server.abort();
+    machine.close().await;
 }

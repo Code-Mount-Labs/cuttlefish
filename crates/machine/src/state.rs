@@ -100,16 +100,12 @@ impl Machine {
     ) -> Result<(), Error> {
         crate::settings::validate_origin(platform_origin)?;
         crate::settings::validate_origin(public_origin)?;
-        let changed=sqlx::query("INSERT INTO installation(singleton,registration,platform_origin,public_origin) VALUES(1,?1,?2,?3) ON CONFLICT DO NOTHING")
-            .bind(sqlx::types::Json(registration)).bind(platform_origin).bind(public_origin).execute(&self.pool).await?.rows_affected();
-        if changed == 0 {
-            let same:bool=sqlx::query_scalar("SELECT registration=?1 AND platform_origin=?2 AND public_origin=?3 FROM installation WHERE singleton=1")
-                .bind(sqlx::types::Json(registration)).bind(platform_origin).bind(public_origin).fetch_one(&self.pool).await?;
-            if !same {
-                return Err(Error::Invalid(
-                    "installation identity is already configured",
-                ));
-            }
+        let saved: Option<i64> = sqlx::query_scalar("INSERT INTO installation(singleton,registration,platform_origin,public_origin) VALUES(1,?1,?2,?3) ON CONFLICT(singleton) DO UPDATE SET singleton=installation.singleton WHERE installation.registration=excluded.registration AND installation.platform_origin=excluded.platform_origin AND installation.public_origin=excluded.public_origin RETURNING singleton")
+            .bind(sqlx::types::Json(registration)).bind(platform_origin).bind(public_origin).fetch_optional(&self.pool).await?;
+        if saved.is_none() {
+            return Err(Error::Invalid(
+                "installation identity is already configured",
+            ));
         }
         Ok(())
     }

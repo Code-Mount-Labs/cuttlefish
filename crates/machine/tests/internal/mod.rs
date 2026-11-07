@@ -16,7 +16,7 @@ use uuid::Uuid;
 #[derive(Debug, Default)]
 pub(crate) struct Backend {
     specs: Mutex<Vec<String>>,
-    fail: AtomicBool,
+    pub(crate) fail: AtomicBool,
     pause: AtomicBool,
     entered: tokio::sync::Notify,
 }
@@ -201,6 +201,6 @@ mod http;
 mod registry;
 mod state_cases;
 
-mod end_to_end;
+pub(crate) mod end_to_end;
 
 mod faults;

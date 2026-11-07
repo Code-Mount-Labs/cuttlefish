@@ -8,7 +8,7 @@ case "$(uname -s)-$(uname -m)" in
   Linux-aarch64|Linux-arm64) target=aarch64-unknown-linux-musl;;
   Darwin-arm64) target=aarch64-apple-darwin;;
   Darwin-x86_64) target=x86_64-apple-darwin;;
-  *) echo 'Unsupported platform. Windows users should use install.ps1.' >&2; exit 1;;
+  *) echo 'Unsupported platform. This release supports Linux and macOS; Windows installation is deferred.' >&2; exit 1;;
 esac
 root=${CUTTLEFISH_INSTALL_DIR:-"$HOME/.local/share/cuttlefish"}
 asset="cuttlefish-$version-$target.tar.gz"

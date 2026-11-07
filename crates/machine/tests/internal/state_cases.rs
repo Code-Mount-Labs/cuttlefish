@@ -60,6 +60,7 @@ async fn rejected_selections_do_not_touch_the_backend_or_replace_ready_data() {
             .await
             .is_err()
     );
+    assert!(machine.configure(DatabaseChoice::Later).await.is_err());
     backend.fail.store(false, Ordering::SeqCst);
     machine
         .configure(DatabaseChoice::Existing {

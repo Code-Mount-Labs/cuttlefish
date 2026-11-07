@@ -3,6 +3,7 @@
 set -eu
 distribution=${1:-ubuntu-24.04}
 mode=${2:-rootless}
+archive=${3:-}
 case "$distribution" in ubuntu-24.04|debian-13) ;; *) exit 2;; esac
 case "$mode" in rootless|rootful) ;; *) exit 2;; esac
 repository=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -16,7 +17,19 @@ created=yes
 limactl start --yes --name="$name" --vm-type=vz --cpus=2 --memory=2 --disk=12 --plain --mount-none --containerd=none "template:$distribution" > "$results/boot.log" 2>&1
 guest() { limactl shell --workdir=/tmp "$name" "$@"; }
 guest sh -c '! command -v docker; cat /etc/os-release' > "$results/initial.txt"
-if [ "$mode" = rootful ]; then
+if [ -n "$archive" ]; then
+  archive=$(cd "$(dirname "$archive")" && pwd)/$(basename "$archive")
+  limactl copy "$archive" "$name:/tmp/$(basename "$archive")"
+  for file in install.sh tests/install/bootstrap.py tests/install/release-smoke.py; do
+    limactl copy "$repository/$file" "$name:/tmp/$(basename "$file")"
+  done
+  guest python3 /tmp/bootstrap.py "/tmp/$(basename "$archive")" /tmp/install.sh /tmp/cuttlefish-installed > "$results/bootstrap.log" 2>&1
+  if [ "$mode" = rootful ]; then
+    guest sudo python3 /tmp/release-smoke.py /tmp/cuttlefish-installed/bin /tmp/cuttlefish-smoke > "$results/application.log" 2>&1
+  else
+    guest python3 /tmp/release-smoke.py /tmp/cuttlefish-installed/bin /tmp/cuttlefish-smoke > "$results/application.log" 2>&1
+  fi
+elif [ "$mode" = rootful ]; then
   guest sudo sh -s -- --non-interactive < "$repository/install/docker.sh" > "$results/install.log" 2>&1
 else
   guest sh -s -- --non-interactive < "$repository/install/docker.sh" > "$results/install.log" 2>&1

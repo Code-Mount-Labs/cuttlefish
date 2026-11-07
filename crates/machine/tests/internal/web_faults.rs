@@ -220,3 +220,90 @@ async fn https_cookie_is_secure_and_unsupported_enrollment_is_rejected() {
     );
     machine.close().await;
 }
+
+#[tokio::test]
+async fn enrollment_races_accept_only_the_same_identity() {
+    use crate::tests::end_to_end::Database;
+    use orchestrator_protocol::ids::{InstallationId, NodeId};
+    let db = Database::new().await;
+    let (_dir, machine) = machine().await;
+    let headers = admin(&machine).await;
+    assert!(
+        database(
+            State(machine.clone()),
+            headers,
+            Json(DatabaseChoice::Existing {
+                url: "invalid".into()
+            })
+        )
+        .await
+        .is_err()
+    );
+    machine
+        .configure(DatabaseChoice::Existing {
+            url: db.url.clone(),
+        })
+        .await
+        .expect("configure");
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    let server = Router::new().route(
+        "/api/v1/router/authorize-agent",
+        post(move || {
+            let barrier = barrier.clone();
+            async move {
+                barrier.wait().await;
+                Json(json!({"group_id":registration().group_id}))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listen");
+    let origin = format!("http://{}", listener.local_addr().expect("address"));
+    sqlx::query("UPDATE installation SET platform_origin=?1")
+        .bind(origin)
+        .execute(&machine.pool)
+        .await
+        .expect("registry");
+    let task = tokio::spawn(async move {
+        axum::serve(listener, server).await.expect("server");
+    });
+    let input = || Json(crate::registry::Enrollment::from(&registration()));
+    let (first, second) = tokio::join!(
+        enroll(State(machine.clone()), input()),
+        enroll(State(machine.clone()), input())
+    );
+    assert!(first.is_ok());
+    assert!(second.is_ok());
+    let store = machine.execution_store().await.expect("store");
+    let other = InstallationId::random();
+    let request = || {
+        Json(crate::registry::Enrollment {
+            installation_id: other,
+            credential: registration().credential.expose().into(),
+        })
+    };
+    let (first, second) = tokio::join!(
+        enroll(State(machine.clone()), request()),
+        enroll(State(machine.clone()), request())
+    );
+    assert!(matches!(
+        first,
+        Err(Error::Dependency("agent_enrollment_failed"))
+    ));
+    assert!(matches!(
+        second,
+        Err(Error::Dependency("agent_enrollment_failed"))
+    ));
+    assert_eq!(
+        store
+            .identity(&registration().credential)
+            .await
+            .expect("identity")
+            .1,
+        NodeId::from(registration().installation_id)
+    );
+    task.abort();
+    machine.close().await;
+    db.close().await;
+}

@@ -97,6 +97,9 @@ impl Machine {
         if !valid || !username_matches {
             return Err(Error::Unauthorized);
         }
+        self.issue_login_session().await
+    }
+    async fn issue_login_session(&self) -> Result<String, Error> {
         let token = random_token();
         let mut tx = self.pool.begin().await?;
         sqlx::query("UPDATE local_admin SET failed_logins=0,login_window=unixepoch()")
@@ -157,3 +160,7 @@ pub(crate) fn digest(value: &str) -> Vec<u8> {
 pub(crate) fn random_token() -> String {
     format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
 }
+
+#[cfg(test)]
+#[path = "../tests/internal/auth.rs"]
+mod tests;

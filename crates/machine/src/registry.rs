@@ -21,7 +21,7 @@ pub struct Topology {
 #[derive(Debug, Clone)]
 pub struct Client {
     client: reqwest::Client,
-    origin: String,
+    pub(crate) origin: String,
 }
 impl Client {
     /// Create an HTTPS client; literal loopback HTTP is allowed for local setups.
@@ -29,8 +29,11 @@ impl Client {
     /// # Errors
     /// Rejects unsafe origins or inability to initialize TLS.
     pub fn new(origin: &str) -> Result<Self, Error> {
+        Self::with_builder(origin, reqwest::Client::builder())
+    }
+    fn with_builder(origin: &str, builder: reqwest::ClientBuilder) -> Result<Self, Error> {
         let origin = validate_origin(origin)?;
-        let client = reqwest::Client::builder()
+        let client = builder
             .timeout(Duration::from_secs(15))
             .connect_timeout(Duration::from_secs(3))
             .redirect(reqwest::redirect::Policy::none())
@@ -58,6 +61,10 @@ impl Client {
         if let Some(token) = token {
             request = request.bearer_auth(token.expose());
         }
+        let bytes = Self::receive(request).await?;
+        serde_json::from_slice(&bytes).map_err(|_| Error::Dependency("invalid_remote_response"))
+    }
+    async fn receive(request: reqwest::RequestBuilder) -> Result<Vec<u8>, Error> {
         let mut response = request
             .send()
             .await
@@ -76,8 +83,9 @@ impl Client {
             }
             bytes.extend_from_slice(&chunk);
         }
-        serde_json::from_slice(&bytes).map_err(|_| Error::Dependency("invalid_remote_response"))
+        Ok(bytes)
     }
+
     /// Validate a one-use invitation and read the group's current topology.
     ///
     /// # Errors
@@ -203,3 +211,7 @@ impl From<&Registration> for Enrollment {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/internal/registry_client.rs"]
+mod tests;

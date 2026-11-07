@@ -58,9 +58,9 @@ pub trait DockerCommands: std::fmt::Debug + Send + Sync {
 pub struct SystemDocker;
 impl DockerCommands for SystemDocker {
     fn prepare(&self) -> ResourceFuture<'_> {
-        Box::pin(
-            async move { ensure_available(self, crate::dependencies::install_docker(false)).await },
-        )
+        Box::pin(async move {
+            ensure_available(self, Box::pin(crate::dependencies::install_docker(false))).await
+        })
     }
 
     fn execute(&self, args: Vec<String>) -> CommandFuture<'_> {
@@ -360,38 +360,38 @@ async fn prepare_application_role(
     Ok(())
 }
 
-fn docker_binary() -> std::path::PathBuf {
+fn docker_binary() -> PathBuf {
     #[cfg(target_os = "macos")]
-    {
-        let path =
-            std::path::PathBuf::from("/Applications/Docker.app/Contents/Resources/bin/docker");
-        if path.is_file() {
-            return path;
-        }
-    }
+    let candidates = vec![PathBuf::from(
+        "/Applications/Docker.app/Contents/Resources/bin/docker",
+    )];
     #[cfg(windows)]
-    {
-        for (base, suffix) in [
-            (
-                "LOCALAPPDATA",
-                "Programs/DockerDesktop/resources/bin/docker.exe",
-            ),
-            ("ProgramFiles", "Docker/Docker/resources/bin/docker.exe"),
-        ] {
-            if let Some(root) = std::env::var_os(base) {
-                let path = std::path::PathBuf::from(root).join(suffix);
-                if path.is_file() {
-                    return path;
-                }
-            }
-        }
-    }
-    std::path::PathBuf::from("docker")
+    let candidates: Vec<PathBuf> = [
+        (
+            "LOCALAPPDATA",
+            "Programs/DockerDesktop/resources/bin/docker.exe",
+        ),
+        ("ProgramFiles", "Docker/Docker/resources/bin/docker.exe"),
+    ]
+    .into_iter()
+    .filter_map(|(base, suffix)| {
+        std::env::var_os(base).map(|root| PathBuf::from(root).join(suffix))
+    })
+    .collect();
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let candidates = Vec::new();
+    locate_docker(candidates)
+}
+fn locate_docker(candidates: Vec<PathBuf>) -> PathBuf {
+    candidates
+        .into_iter()
+        .find(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from("docker"))
 }
 
 async fn ensure_available(
     commands: &dyn DockerCommands,
-    installation: impl Future<Output = Result<(), Error>>,
+    installation: ResourceFuture<'_>,
 ) -> Result<(), Error> {
     if commands
         .execute(strings(&["info", "--format", "{{.ServerVersion}}"]))
@@ -415,7 +415,6 @@ async fn ensure_available(
 
 async fn execute_bounded(mut command: Command, deadline: Duration) -> Result<CommandResult, Error> {
     use std::process::Stdio;
-    use tokio::io::AsyncReadExt;
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -427,14 +426,27 @@ async fn execute_bounded(mut command: Command, deadline: Duration) -> Result<Com
     let stdout = child
         .stdout
         .take()
-        .ok_or(Error::Dependency("docker_output_unavailable"))?;
+        .map(|output| Box::new(output) as ProcessOutput);
+    complete_command(stdout, Box::pin(child.wait()), deadline).await
+}
+
+type ProcessOutput = Box<dyn tokio::io::AsyncRead + Unpin + Send>;
+type ProcessWait<'a> =
+    Pin<Box<dyn Future<Output = std::io::Result<std::process::ExitStatus>> + Send + 'a>>;
+async fn complete_command(
+    stdout: Option<ProcessOutput>,
+    wait: ProcessWait<'_>,
+    deadline: Duration,
+) -> Result<CommandResult, Error> {
+    use tokio::io::AsyncReadExt;
+    let stdout = stdout.ok_or(Error::Dependency("docker_output_unavailable"))?;
     let operation = async {
         let mut bytes = Vec::new();
         stdout.take(1_048_577).read_to_end(&mut bytes).await?;
         if bytes.len() > 1_048_576 {
             return Err(Error::Dependency("docker_response_too_large"));
         }
-        let status = child.wait().await?;
+        let status = wait.await?;
         Ok(CommandResult {
             success: status.success(),
             stdout: bytes,
@@ -454,3 +466,7 @@ fn path_string(path: &Path) -> Result<String, Error> {
         .map(str::to_owned)
         .ok_or(Error::Invalid("installation_path_is_not_utf8"))
 }
+
+#[cfg(all(test, feature = "docker-tests"))]
+#[path = "../tests/internal/postgres_faults.rs"]
+mod postgres_faults;

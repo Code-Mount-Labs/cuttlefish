@@ -37,6 +37,16 @@ impl TryFrom<String> for NodeToken {
 }
 
 impl NodeToken {
+    /// Generate a private transport credential with cryptographically random UUIDs.
+    #[must_use]
+    pub fn random() -> Self {
+        Self(format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        ))
+    }
+
     /// Reveal only when constructing an authenticated request or credential hash.
     #[must_use]
     pub fn expose(&self) -> &str {

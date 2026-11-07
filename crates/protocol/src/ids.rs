@@ -95,3 +95,11 @@ impl From<InstallationId> for NodeId {
         Self(value.0)
     }
 }
+
+impl InstallationId {
+    /// Generate a non-nil random installation identity.
+    #[must_use]
+    pub fn random() -> Self {
+        Self(Uuid::new_v4())
+    }
+}

@@ -4,7 +4,18 @@ The Rust `cuttlefish` binary runs a local dashboard before PostgreSQL exists. It
 supports router + agent, router only, and agent only. A group has exactly one
 registered router; agent-only enrollment requires that router to be ready.
 
-## Current development entry point
+## Install a release
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.1/install.sh | sh
+```
+
+Linux and macOS releases include ARM64 and x86-64 binaries. Windows installation
+is deferred pending testing on a suitable Windows 11 machine.
+`CUTTLEFISH_INSTALL_DIR` selects the installation directory;
+`CUTTLEFISH_NO_SETUP=1` installs binaries without starting interactive setup.
+
+## Build from source
 
 ```sh
 cargo build --locked -p cuttlefish-machine -p orchestrator-node --bins
@@ -23,9 +34,8 @@ administrator are independent. The default state directory is `~/.cuttlefish`;
 use `--state-dir` to override it. To resume, run `cuttlefish serve` with the same
 state directory and listener settings.
 
-Public bootstrap scripts (`install.sh`, `install.ps1`) are prepared for versioned,
-checksum-verified release archives. They are not usable until those release
-assets are published. No installation release has been published for this change.
+The shell bootstrap downloads versioned, checksum-verified release archives.
+Windows scripts remain experimental and are not a supported installation path.
 The current service runs in the foreground; OS service registration and automatic
 startup at login or boot are not yet implemented.
 
@@ -47,7 +57,7 @@ container, volume, and secrets. Failed work remains visible until the operator
 retries; it does not create replacement data volumes automatically.
 
 Docker installation currently supports official Docker Engine packages on
-**Ubuntu and Debian**, and Docker Desktop on **macOS and Windows**. Existing
+**Ubuntu and Debian**, and Docker Desktop on **macOS**. Existing
 working Docker is reused. Linux non-root installation uses rootless Docker rather
 than adding the application account to the root-equivalent Docker group. Package
 installation still needs administrator privileges. The dashboard never collects
@@ -119,7 +129,15 @@ service, verifies stored data, and removes its own container and volume:
 COORDINATOR_TEST_DATABASE_URL=... cargo test -p cuttlefish-machine --features docker-tests
 ```
 
-Run only against a dedicated test PostgreSQL database. The workspace still targets
-100% line, function, and region coverage. The new installation layer has not yet
-reached that gate; release publication remains pending. Tests on this workstation
-do not establish that a fresh Windows or Linux OS installation has been validated.
+Run only against a dedicated test PostgreSQL database. The required gate is
+100% line, function, and region coverage, including the Docker tests. Fault tests
+disconnect a real PostgreSQL connection at every provisioning transaction step
+and verify that no partially created application role survives.
+
+`tests/install/fresh-linux.sh` creates a disposable Lima VM with no host mounts
+or preinstalled Docker. It tests initial installation, repeat installation, and
+daemon/data persistence through a full VM reboot. Ubuntu 24.04 and Debian 13
+are exercised in both root and rootless modes. An optional third argument accepts
+a release archive and also exercises the bootstrap and complete local setup flow.
+`tests/install/release-smoke.py` uses a local directory fixture while exercising
+real authentication, provisioning, agent enrollment, and supervisor restarts.

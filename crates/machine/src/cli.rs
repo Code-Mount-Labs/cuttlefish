@@ -14,6 +14,7 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
+#[cfg(test)]
 use uuid::Uuid;
 
 /// Command-line entry point for a local Cuttlefish installation.
@@ -51,6 +52,22 @@ enum Mode {
 /// # Errors
 /// Reports invalid setup input, network, storage and listener errors.
 pub async fn run(cli: Cli) -> Result<(), Error> {
+    run_with(
+        cli,
+        std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")),
+        std::env::current_exe,
+        &mut io::stdin().lock(),
+        &mut io::stdout(),
+    )
+    .await
+}
+async fn run_with(
+    cli: Cli,
+    home: Option<std::ffi::OsString>,
+    executable: fn() -> io::Result<PathBuf>,
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+) -> Result<(), Error> {
     let (platform, listen) = match cli.command {
         Mode::InstallDocker => return crate::dependencies::install_docker(true).await,
         Mode::Setup { platform, listen } => (Some(platform), listen),
@@ -58,12 +75,9 @@ pub async fn run(cli: Cli) -> Result<(), Error> {
     };
     let directory = match cli.state_dir {
         Some(path) => path,
-        None => PathBuf::from(
-            std::env::var_os("HOME")
-                .or_else(|| std::env::var_os("USERPROFILE"))
-                .ok_or(Error::Invalid("provide --state-dir"))?,
-        )
-        .join(".cuttlefish"),
+        None => {
+            PathBuf::from(home.ok_or(Error::Invalid("provide --state-dir"))?).join(".cuttlefish")
+        }
     };
     let machine = Machine::open(&directory, Arc::new(DockerBackend::new(&directory))).await?;
     if let Some(platform) = platform
@@ -72,43 +86,41 @@ pub async fn run(cli: Cli) -> Result<(), Error> {
             Err(Error::Invalid("installation_not_initialized"))
         )
     {
-        setup(
-            &machine,
-            &platform,
-            listen,
-            &mut io::stdin().lock(),
-            &mut io::stdout(),
-        )
-        .await?;
+        setup(&machine, &platform, listen, input, output).await?;
     }
-    let identity = machine.identity().await?;
-    println!("Cuttlefish dashboard: {}", identity.public_origin);
-    if !machine.initialized().await? {
-        println!(
-            "One-time local setup code: {}",
-            machine.bootstrap_token()?.expose()
-        );
-    }
-    let worker = std::env::current_exe()?
-        .with_file_name(format!("orchestrator-node{}", std::env::consts::EXE_SUFFIX));
+    print_dashboard(&machine, output).await?;
+    let worker =
+        executable()?.with_file_name(format!("orchestrator-node{}", std::env::consts::EXE_SUFFIX));
     crate::runtime::serve(machine, listen, worker).await
 }
-async fn setup<R: BufRead, W: Write>(
+async fn print_dashboard(machine: &Machine, output: &mut dyn Write) -> Result<(), Error> {
+    let identity = machine.identity().await?;
+    writeln!(output, "Cuttlefish dashboard: {}", identity.public_origin)?;
+    if !machine.initialized().await? {
+        writeln!(
+            output,
+            "One-time local setup code: {}",
+            machine.bootstrap_token()?.expose()
+        )?;
+    }
+    Ok(())
+}
+
+async fn setup(
     machine: &Machine,
     platform: &str,
     listen: SocketAddr,
-    input: &mut R,
-    output: &mut W,
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
 ) -> Result<(), Error> {
-    let platform = validate_origin(platform)?;
+    let client = Client::new(platform)?;
+    let platform = client.origin.clone();
     let group: GroupId = ask(input, output, "Group ID", None)?
         .parse()
         .map_err(|_| Error::Invalid("invalid_group_id"))?;
     let invitation = NodeToken::try_from(ask(input, output, "One-time enrollment code", None)?)
         .map_err(|_| Error::Invalid("invalid_enrollment_code"))?;
-    let topology = Client::new(&platform)?
-        .preflight(group, &invitation)
-        .await?;
+    let topology = client.preflight(group, &invitation).await?;
     if topology.roles.is_empty() {
         return Err(Error::Invalid(
             "this_group_already_has_a_router_that_is_not_ready",
@@ -124,10 +136,7 @@ async fn setup<R: BufRead, W: Write>(
         .checked_sub(1)
         .and_then(|index| topology.roles.get(index))
         .ok_or(Error::Invalid("invalid_role_choice"))?;
-    let name = ask(input, output, "Machine name", Some("My machine"))?;
-    if name.len() > 128 {
-        return Err(Error::Invalid("machine_name_exceeds_128_bytes"));
-    }
+    let name = machine_name(ask(input, output, "Machine name", Some("My machine"))?)?;
     let default_origin = format!("http://127.0.0.1:{}", listen.port());
     let public_origin = validate_origin(&ask(
         input,
@@ -137,16 +146,11 @@ async fn setup<R: BufRead, W: Write>(
     )?)?;
     let registration = Registration {
         group_id: group,
-        installation_id: InstallationId::try_from(Uuid::new_v4())
-            .map_err(|_| Error::Invalid("installation_identity_unavailable"))?,
+        installation_id: InstallationId::random(),
         role,
-        name: name
-            .try_into()
-            .map_err(|_| Error::Invalid("invalid_machine_name"))?,
+        name,
         router_url: role.has_router().then(|| public_origin.clone()),
-        credential: crate::auth::random_token()
-            .try_into()
-            .map_err(|_| Error::Invalid("installation_credential_unavailable"))?,
+        credential: NodeToken::random(),
         invitation,
     };
     machine
@@ -164,9 +168,9 @@ async fn setup<R: BufRead, W: Write>(
     )?;
     Ok(())
 }
-fn ask<R: BufRead, W: Write>(
-    input: &mut R,
-    output: &mut W,
+fn ask(
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
     prompt: &str,
     default: Option<&str>,
 ) -> Result<String, Error> {
@@ -190,6 +194,14 @@ fn ask<R: BufRead, W: Write>(
             .ok_or(Error::Invalid("setup_value_required"));
     }
     Ok(value.to_owned())
+}
+fn machine_name(value: String) -> Result<orchestrator_protocol::values::MessageText, Error> {
+    if value.len() > 128 {
+        return Err(Error::Invalid("machine_name_exceeds_128_bytes"));
+    }
+    value
+        .try_into()
+        .map_err(|_| Error::Invalid("invalid_machine_name"))
 }
 fn role_name(role: InstallationRole) -> &'static str {
     match role {

@@ -214,3 +214,106 @@ async fn invalid_identity_and_password_worker_failure_are_not_hidden() {
     );
     machine.close().await;
 }
+
+#[tokio::test]
+async fn setup_file_failures_never_authorize_an_administrator() {
+    let dir = tempfile::tempdir().expect("directory");
+    let mut machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    machine.files.create = |_| Err(std::io::Error::other("disk full"));
+    assert!(machine.bootstrap_token().is_err());
+    assert!(
+        machine
+            .setup_admin(&registration().credential, credentials())
+            .await
+            .is_err()
+    );
+    machine.files = crate::files::AtomicFiles::default();
+    std::fs::create_dir(dir.path().join("setup.token")).expect("unreadable token");
+    assert!(machine.bootstrap_token().is_err());
+    assert!(!machine.initialized().await.expect("not initialized"));
+    machine.close().await;
+}
+#[tokio::test]
+async fn incomplete_or_corrupt_ready_state_does_not_open_execution() {
+    let dir = tempfile::tempdir().expect("directory");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    initialize(&machine).await;
+    sql(&machine, "UPDATE resources SET state='ready',spec=NULL").await;
+    assert!(matches!(
+        machine.execution_store().await,
+        Err(Error::Invalid("ready_database_has_no_configuration"))
+    ));
+    sql(&machine, "DROP TABLE resources").await;
+    assert!(machine.execution_store().await.is_err());
+    sql(&machine, "DROP TABLE local_settings").await;
+    assert!(machine.save_setting("test", "value").await.is_err());
+    machine.close().await;
+}
+#[derive(Debug)]
+struct BrokenBackend;
+impl DatabaseBackend for BrokenBackend {
+    fn reconcile<'a>(&'a self, _: &'a DatabaseSpec) -> ResourceFuture<'a> {
+        Box::pin(async { Err(std::io::Error::other("injected backend failure").into()) })
+    }
+}
+#[tokio::test]
+async fn unexpected_backend_failure_is_persisted_without_private_details() {
+    let dir = tempfile::tempdir().expect("directory");
+    let machine = Machine::open(dir.path(), Arc::new(BrokenBackend))
+        .await
+        .expect("machine");
+    initialize(&machine).await;
+    assert!(
+        machine
+            .configure(DatabaseChoice::Existing {
+                url: "postgresql://host/db".into()
+            })
+            .await
+            .is_err()
+    );
+    let status = machine.status().await.expect("status");
+    assert_eq!(status.state, "failed");
+    assert!(
+        serde_json::to_string(&status)
+            .expect("json")
+            .contains("database_setup_failed")
+    );
+    machine.close().await;
+}
+
+#[derive(Debug)]
+struct InvalidBackend;
+impl DatabaseBackend for InvalidBackend {
+    fn reconcile<'a>(&'a self, _: &'a DatabaseSpec) -> ResourceFuture<'a> {
+        Box::pin(async { Err(Error::Invalid("resource_ownership_mismatch")) })
+    }
+}
+#[tokio::test]
+async fn invalid_resource_configuration_is_not_reported_as_ready() {
+    let dir = tempfile::tempdir().expect("directory");
+    let machine = Machine::open(dir.path(), Arc::new(InvalidBackend))
+        .await
+        .expect("machine");
+    assert!(
+        machine
+            .configure(DatabaseChoice::Existing {
+                url: "postgresql://host/db".into()
+            })
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        machine
+            .status()
+            .await
+            .expect("status")
+            .error_code
+            .as_deref(),
+        Some("resource_ownership_mismatch")
+    );
+    machine.close().await;
+}

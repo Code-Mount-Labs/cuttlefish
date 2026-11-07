@@ -45,7 +45,7 @@ async fn installer_reports_process_pipe_wait_exit_and_deadline_failures() {
         .is_err()
     );
     assert!(
-        complete_installer(
+        complete(
             None::<tokio::io::Sink>,
             std::future::ready(Ok(status(0))),
             "",
@@ -55,7 +55,7 @@ async fn installer_reports_process_pipe_wait_exit_and_deadline_failures() {
         .is_err()
     );
     assert!(
-        complete_installer(
+        complete(
             Some(Refuse),
             std::future::ready(Ok(status(0))),
             "script",
@@ -65,7 +65,7 @@ async fn installer_reports_process_pipe_wait_exit_and_deadline_failures() {
         .is_err()
     );
     assert!(
-        complete_installer(
+        complete(
             Some(tokio::io::sink()),
             std::future::ready(Err(io::Error::other("wait failed"))),
             "",
@@ -75,7 +75,7 @@ async fn installer_reports_process_pipe_wait_exit_and_deadline_failures() {
         .is_err()
     );
     assert!(
-        complete_installer(
+        complete(
             Some(tokio::io::sink()),
             std::future::ready(Ok(status(256))),
             "",
@@ -85,7 +85,7 @@ async fn installer_reports_process_pipe_wait_exit_and_deadline_failures() {
         .is_err()
     );
     assert!(
-        complete_installer(
+        complete(
             Some(tokio::io::sink()),
             std::future::pending(),
             "",
@@ -94,7 +94,7 @@ async fn installer_reports_process_pipe_wait_exit_and_deadline_failures() {
         .await
         .is_err()
     );
-    complete_installer(
+    complete(
         Some(tokio::io::sink()),
         std::future::ready(Ok(status(0))),
         "",
@@ -102,4 +102,25 @@ async fn installer_reports_process_pipe_wait_exit_and_deadline_failures() {
     )
     .await
     .expect("success");
+}
+
+#[cfg(feature = "docker-tests")]
+#[tokio::test]
+async fn interactive_installation_reuses_the_test_docker() {
+    install_docker(true).await.expect("existing Docker");
+}
+
+async fn complete(
+    input: Option<impl tokio::io::AsyncWrite + Unpin + Send + 'static>,
+    wait: impl std::future::Future<Output = io::Result<ExitStatus>> + Send,
+    script: &str,
+    deadline: Duration,
+) -> Result<(), Error> {
+    complete_installer(
+        input.map(|value| Box::new(value) as InstallerInput),
+        Box::pin(wait),
+        script,
+        deadline,
+    )
+    .await
 }

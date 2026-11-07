@@ -11,13 +11,13 @@ use orchestrator_protocol::{
 };
 use serde_json::{Value, json};
 use sqlx::{PgPool, postgres::PgPoolOptions};
-struct Database {
+pub(crate) struct Database {
     admin: PgPool,
     schema: String,
-    url: String,
+    pub(crate) url: String,
 }
 impl Database {
-    async fn new() -> Self {
+    pub(crate) async fn new() -> Self {
         let base =
             std::env::var("COORDINATOR_TEST_DATABASE_URL").expect("dedicated PostgreSQL required");
         let admin = PgPoolOptions::new()
@@ -39,7 +39,7 @@ impl Database {
             url: url.to_string(),
         }
     }
-    async fn close(self) {
+    pub(crate) async fn close(self) {
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "DROP SCHEMA {} CASCADE",
             self.schema

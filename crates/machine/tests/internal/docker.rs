@@ -69,7 +69,7 @@ fn spec() -> DatabaseSpec {
 async fn installed_docker_never_runs_the_installer() {
     let cmds = commands(vec![result(true, &json!({}))]);
     let installed = AtomicBool::new(false);
-    ensure_available(cmds.as_ref(), async {
+    ensure(cmds.as_ref(), async {
         installed.store(true, Ordering::SeqCst);
         Ok(())
     })
@@ -83,7 +83,7 @@ async fn absent_or_stopped_docker_installs_then_verifies_and_reports_failure() {
     for first in [result(false, &json!({})), Err(Error::Dependency("missing"))] {
         let cmds = commands(vec![first, result(true, &json!({}))]);
         let installed = AtomicBool::new(false);
-        ensure_available(cmds.as_ref(), async {
+        ensure(cmds.as_ref(), async {
             installed.store(true, Ordering::SeqCst);
             Ok(())
         })
@@ -94,7 +94,7 @@ async fn absent_or_stopped_docker_installs_then_verifies_and_reports_failure() {
     }
     let cmds = commands(vec![result(false, &json!({}))]);
     assert!(matches!(
-        ensure_available(cmds.as_ref(), async {
+        ensure(cmds.as_ref(), async {
             Err(Error::Dependency("administrator_required"))
         })
         .await,
@@ -102,7 +102,7 @@ async fn absent_or_stopped_docker_installs_then_verifies_and_reports_failure() {
     ));
     let cmds = commands(vec![result(false, &json!({})), result(false, &json!({}))]);
     assert!(matches!(
-        ensure_available(cmds.as_ref(), async { Ok(()) }).await,
+        ensure(cmds.as_ref(), async { Ok(()) }).await,
         Err(Error::Dependency(
             "docker_setup_requires_administrator_or_desktop_setup"
         ))
@@ -111,11 +111,7 @@ async fn absent_or_stopped_docker_installs_then_verifies_and_reports_failure() {
         result(false, &json!({})),
         Err(Error::Dependency("still_missing")),
     ]);
-    assert!(
-        ensure_available(cmds.as_ref(), async { Ok(()) })
-            .await
-            .is_err()
-    );
+    assert!(ensure(cmds.as_ref(), async { Ok(()) }).await.is_err());
 }
 #[tokio::test]
 async fn provisioning_creates_only_named_resources_and_retry_adopts_the_same_storage() {
@@ -472,4 +468,101 @@ async fn database_probe_failure_is_not_ready_and_invalid_environment_paths_are_r
         let path = dir.path().join(std::ffi::OsString::from_vec(vec![255]));
         assert!(path_string(&path).is_err());
     }
+}
+
+struct BrokenRead;
+impl tokio::io::AsyncRead for BrokenRead {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+        _: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Err(std::io::Error::other("pipe failure")))
+    }
+}
+
+#[tokio::test]
+async fn command_transport_failures_never_return_success() {
+    use std::io;
+    let deadline = Duration::from_millis(20);
+    assert!(
+        complete(None::<tokio::io::Empty>, std::future::pending(), deadline)
+            .await
+            .is_err()
+    );
+    assert!(
+        complete(Some(BrokenRead), std::future::pending(), deadline)
+            .await
+            .is_err()
+    );
+    assert!(
+        complete(
+            Some(tokio::io::empty()),
+            std::future::ready(Err(io::Error::other("wait failure"))),
+            deadline
+        )
+        .await
+        .is_err()
+    );
+}
+
+#[derive(Debug)]
+struct RetryingProbe(std::sync::atomic::AtomicUsize);
+impl DatabaseProbe for RetryingProbe {
+    fn verify<'a>(&'a self, _: &'a DatabaseSpec) -> ResourceFuture<'a> {
+        Box::pin(async {
+            if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+                Err(Error::Database(sqlx::Error::PoolClosed))
+            } else {
+                Ok(())
+            }
+        })
+    }
+}
+#[tokio::test]
+async fn a_starting_database_is_retried_before_becoming_ready() {
+    let dir = tempfile::tempdir().expect("directory");
+    let replies = vec![
+        result(true, &json!({})),
+        result(true, &json!({})),
+        result(true, &json!([{"Labels":{OWNER:identity()}}])),
+        result(true, &json!({})),
+        result(true, &saved(true)),
+    ];
+    let probe = Arc::new(RetryingProbe(std::sync::atomic::AtomicUsize::new(0)));
+    let backend = DockerBackend::with_dependencies(dir.path(), commands(replies), probe.clone());
+    backend.reconcile(&spec()).await.expect("retried");
+    assert_eq!(probe.0.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn docker_discovery_falls_back_to_path_and_prefers_a_real_installation() {
+    let dir = tempfile::tempdir().expect("directory");
+    let binary = dir.path().join("docker");
+    assert_eq!(locate_docker(vec![binary.clone()]), PathBuf::from("docker"));
+    std::fs::write(&binary, "executable").expect("file");
+    assert_eq!(
+        locate_docker(vec![dir.path().join("missing"), binary.clone()]),
+        binary
+    );
+}
+
+async fn complete(
+    output: Option<impl tokio::io::AsyncRead + Unpin + Send + 'static>,
+    wait: impl Future<Output = std::io::Result<std::process::ExitStatus>> + Send,
+    deadline: Duration,
+) -> Result<CommandResult, Error> {
+    complete_command(
+        output.map(|value| Box::new(value) as ProcessOutput),
+        Box::pin(wait),
+        deadline,
+    )
+    .await
+}
+
+async fn ensure<'a>(
+    commands: &'a dyn DockerCommands,
+    installation: impl Future<Output = Result<(), Error>> + Send + 'a,
+) -> Result<(), Error> {
+    ensure_available(commands, Box::pin(installation)).await
 }

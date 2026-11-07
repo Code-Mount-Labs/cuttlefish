@@ -173,11 +173,14 @@ $('group-form').addEventListener('submit', event => {
 });
 $('refresh').addEventListener('click', () => loadGroups().catch(error => notify(error.message)));
 $('copy-group').addEventListener('click', () => copy(selected, 'Group ID copied.'));
+$('copy-install').addEventListener('click', () => copy($('install-command').value, 'Install command copied.'));
 $('copy-invite').addEventListener('click', () => copy($('invite-code').value, 'Enrollment code copied.'));
 async function copy(value, message) { try { await navigator.clipboard.writeText(value); notify(message); } catch { notify('Copy unavailable. Select and copy the value manually.'); } }
 $('add-machine').addEventListener('click', () => action($('group-detail'), async () => {
   const result = await api(`/api/v1/groups/${selected}/invitations`, {});
   $('invite-origin').value = location.origin;
+  const platform = "'" + location.origin.replaceAll("'", "'\"'\"'") + "'";
+  $('install-command').value = "curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.1/install.sh | sh -s -- --platform " + platform;
   $('invite-group').value = selected;
   $('invite-code').value = result.invitation;
   $('invite-dialog').showModal();

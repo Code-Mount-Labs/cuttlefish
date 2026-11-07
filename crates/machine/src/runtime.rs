@@ -47,6 +47,14 @@ pub async fn serve_until(
     worker: PathBuf,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> Result<(), Error> {
+    serve_with_shutdown(machine, listen, worker, Box::pin(shutdown)).await
+}
+async fn serve_with_shutdown(
+    machine: Machine,
+    listen: std::net::SocketAddr,
+    worker: PathBuf,
+    shutdown: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+) -> Result<(), Error> {
     let listener = tokio::net::TcpListener::bind(listen).await?;
     let ready = Arc::new(AtomicBool::new(false));
     let reporting = tokio::spawn(report(machine.clone(), ready.clone()));

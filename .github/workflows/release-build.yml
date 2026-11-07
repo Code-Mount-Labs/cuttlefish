@@ -51,6 +51,13 @@ jobs:
           cp LICENSE package/
           tar -czf artifacts/cuttlefish-v$version-$RELEASE_TARGET.tar.gz -C package .
           (cd artifacts && shasum -a 256 *.tar.gz > SHA256SUMS-$RELEASE_TARGET)
+      - name: Verify bootstrap and repeat installation
+        shell: bash
+        run: python3 tests/install/bootstrap.py artifacts/*.tar.gz install.sh "$RUNNER_TEMP/cuttlefish-installed"
+      - name: Verify packaged router and agent with real PostgreSQL
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python3 tests/install/release-smoke.py "$RUNNER_TEMP/cuttlefish-installed/bin" "$RUNNER_TEMP/cuttlefish-release-smoke"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: installer-${{ matrix.target }}

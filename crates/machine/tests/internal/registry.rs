@@ -106,3 +106,119 @@ async fn registration_retries_exact_identity_and_advertises_without_database_cre
     task.abort();
     machine.close().await;
 }
+
+#[tokio::test]
+async fn directory_mismatches_and_failed_local_commits_never_complete_registration() {
+    let expected = registration();
+    for reply in [
+        json!({"group_id":Uuid::from_u128(99),"installation_id":expected.installation_id,"router_url":"http://127.0.0.1:8080"}),
+        json!({"group_id":expected.group_id,"installation_id":Uuid::from_u128(99),"router_url":"http://127.0.0.1:8080"}),
+        json!({"group_id":expected.group_id,"installation_id":expected.installation_id,"router_url":"invalid"}),
+    ] {
+        let (origin, task) = server(Router::new().route(
+            "/api/v1/installations",
+            post(move || {
+                let reply = reply.clone();
+                async move { Json(reply) }
+            }),
+        ))
+        .await;
+        let dir = tempfile::tempdir().expect("directory");
+        let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+            .await
+            .expect("machine");
+        machine
+            .initialize(&expected, &origin, "http://127.0.0.1:8080")
+            .await
+            .expect("initialize");
+        assert!(machine.register().await.is_err());
+        assert!(machine.setting("registered").await.expect("flag").is_none());
+        machine.close().await;
+        task.abort();
+    }
+    let dir = tempfile::tempdir().expect("directory");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    initialize(&machine).await;
+    sqlx::query("UPDATE installation SET platform_origin='invalid'")
+        .execute(&machine.pool)
+        .await
+        .expect("corrupt origin");
+    assert!(machine.register().await.is_err());
+    machine
+        .save_setting("registered", "true")
+        .await
+        .expect("registered");
+    assert!(machine.advertise(false).await.is_err());
+    assert!(
+        machine
+            .authorize_agent(expected.installation_id, &expected.credential)
+            .await
+            .is_err()
+    );
+    sqlx::query("DROP TABLE resources")
+        .execute(&machine.pool)
+        .await
+        .expect("corrupt resources");
+    assert!(machine.advertise(false).await.is_err());
+    sqlx::query("DELETE FROM installation")
+        .execute(&machine.pool)
+        .await
+        .expect("missing identity");
+    assert!(machine.advertise(false).await.is_err());
+    machine.close().await;
+}
+
+#[tokio::test]
+async fn authorization_rejects_wrong_group_and_agent_only_installations() {
+    let (origin, task) = server(Router::new().route(
+        "/api/v1/router/authorize-agent",
+        post(|| async { Json(json!({"group_id":Uuid::from_u128(999)})) }),
+    ))
+    .await;
+    for role in [InstallationRole::Router, InstallationRole::Agent] {
+        let dir = tempfile::tempdir().expect("directory");
+        let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+            .await
+            .expect("machine");
+        let mut identity = registration();
+        identity.role = role;
+        machine
+            .initialize(&identity, &origin, "http://127.0.0.1:8080")
+            .await
+            .expect("identity");
+        assert!(matches!(
+            machine
+                .authorize_agent(identity.installation_id, &identity.credential)
+                .await,
+            Err(Error::Unauthorized)
+        ));
+        machine.close().await;
+    }
+    task.abort();
+}
+
+#[tokio::test]
+async fn registration_never_claims_success_when_router_address_cannot_be_saved() {
+    let app=Router::new().route("/api/v1/installations",post(||async {let identity=registration();Json(json!({"group_id":identity.group_id,"installation_id":identity.installation_id,"router_url":"http://127.0.0.1:8080"}))}));
+    let (origin, task) = server(app).await;
+    let dir = tempfile::tempdir().expect("directory");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    machine
+        .initialize(&registration(), &origin, "http://127.0.0.1:8080")
+        .await
+        .expect("identity");
+    sqlx::raw_sql("CREATE TRIGGER fail BEFORE INSERT ON local_settings BEGIN SELECT RAISE(ABORT,'disk failure'); END").execute(&machine.pool).await.expect("fault");
+    assert!(machine.register().await.is_err());
+    sqlx::raw_sql("DROP TRIGGER fail")
+        .execute(&machine.pool)
+        .await
+        .expect("restore");
+    machine.register().await.expect("retry");
+    assert!(machine.advertise(true).await.is_err());
+    machine.close().await;
+    task.abort();
+}

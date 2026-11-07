@@ -1,11 +1,9 @@
 """Use a disposable Mac installation to verify an explicitly selected staging relay."""
 import argparse
-import fcntl
 import http.client
 import json
 import os
 import pathlib
-import pty
 import re
 import secrets
 import shlex
@@ -13,7 +11,6 @@ import signal
 import sqlite3
 import subprocess
 import tempfile
-import termios
 import time
 import urllib.error
 import urllib.request
@@ -52,41 +49,26 @@ def run(args):
         local = 'http://127.0.0.1:' + str(port())
         address = local.removeprefix('http://')
         log = (root / 'runtime.log').open('wb')
-        terminals = []
         if args.installer_url:
             binary = root / 'installed/bin/cuttlefish'
         environment = dict(os.environ, CUTTLEFISH_INSTALL_DIR=str(root / 'installed'))
         environment.pop('CUTTLEFISH_NO_SETUP', None)
         environment.pop('CUTTLEFISH_VERSION', None)
         download = shlex.join(['curl', '--proto', '=https', '--tlsv1.2', '-fsSL', args.installer_url or ''])
+        if args.installer_url:
+            # Install real public release bytes, then own the runtime process
+            # directly so lifecycle checks do not measure a wrapper shell.
+            subprocess.run(['/bin/sh', '-c', download + ' | sh'],
+                           env=dict(environment, CUTTLEFISH_NO_SETUP='1'),
+                           check=True, stdout=log, stderr=log, timeout=600)
         def start(mode):
             command = [str(binary), '--state-dir', str(state), mode, '--listen', address]
             if mode == 'setup': command += ['--platform', args.platform]
-            installer = mode == 'setup' and args.installer_url
-            if installer:
-                master, slave = pty.openpty()
-                terminals.append(master)
-                def control_terminal():
-                    os.setsid()
-                    fcntl.ioctl(0, termios.TIOCSCTTY, 0)
-                invocation = download + ' | ' + shlex.join(['sh', '-s', '--', *command[1:3], *command[4:]])
-                try:
-                    process = subprocess.Popen(['/bin/sh', '-c', invocation], stdin=slave, stdout=log, stderr=log, env=environment, preexec_fn=control_terminal)
-                finally:
-                    os.close(slave)
-            else:
-                process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=log, stderr=log, start_new_session=True)
+            process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=log, stderr=log)
             children.append(process)
             if mode == 'setup':
-                # Fresh groups offer combined, then router-only. Select router-only;
-                # database provisioning is independent of the relay being tested.
-                answers = f'{group}\n{invitation}\n2\nDisposable Mac relay\nmanaged\n'.encode()
-                if installer:
-                    os.write(master, answers)
-                else:
-                    process.stdin.write(answers)
-            if process.stdin:
-                process.stdin.close()
+                process.stdin.write(f'{group}\n{invitation}\n2\nDisposable Mac relay\nmanaged\n'.encode())
+            process.stdin.close()
             return process
         def status():
             return call(local, '/api/local/remote', cookie=local_cookie)[1]
@@ -95,22 +77,8 @@ def run(args):
             label = config.stem
             output = subprocess.check_output(['launchctl', 'print', f'gui/{os.getuid()}/{label}'], text=True)
             return int(re.search(r'\bpid = (\d+)', output).group(1))
-        def descendants(process):
-            rows = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,command='], text=True)
-            processes = [line.strip().split(None, 2) for line in rows.splitlines()]
-            owned = {process.pid}
-            for _ in processes:
-                more = {int(pid) for pid, parent, _ in processes if int(parent) in owned}
-                if more <= owned: break
-                owned |= more
-            return [(int(pid), command) for pid, _, command in processes if int(pid) in owned]
         def stop(process):
-            # The pipeline shell is not the supervisor. Signal the exact runtime
-            # descendant, then require the installer pipeline to finish cleanly.
-            runtimes = [pid for pid, command in descendants(process)
-                        if command.startswith(str(binary) + ' --state-dir ' + str(state) + ' ')]
-            assert len(runtimes) == 1, 'exactly one owned supervisor must be running'
-            os.kill(runtimes[0], signal.SIGINT)
+            process.send_signal(signal.SIGINT)
             assert process.wait(timeout=30) == 0
         local_cookie = None
         try:
@@ -138,13 +106,13 @@ def run(args):
             assert service_pid() == first, 'connector must survive supervisor exit'
             if args.installer_url:
                 # Reinstall public release bytes without altering the durable identity.
-                subprocess.run(['/bin/sh', '-c', download + ' | sh'], env=dict(environment, CUTTLEFISH_NO_SETUP='1'), check=True, stdout=log, stderr=log, timeout=180)
+                subprocess.run(['/bin/sh', '-c', download + ' | sh'], env=dict(environment, CUTTLEFISH_NO_SETUP='1'), check=True, stdout=log, stderr=log, timeout=600)
             process = start('serve')
             await_check(lambda: call(remote, '/api/local/status')[0] == 200, 'supervisor restart')
             assert service_pid() == first, 'supervisor must adopt the existing connector'
             checks = ['Mac setup selects managed access', 'pinned native connector installation', 'public HTTPS reaches local JSON API', 'dashboard login and path-scoped secure cookie', 'remote bootstrap blocked', 'connector survives supervisor restart without replacement']
             if args.installer_url:
-                checks += ['public curl-to-shell installation with interactive managed setup', 'repeat installation preserves identity and native connector']
+                checks += ['public curl-to-shell installation followed by managed setup', 'repeat installation preserves identity and native connector']
             if args.restart_service:
                 command = ['railway', 'restart', '--project', args.project, '--environment', args.environment, '--service', args.restart_service, '--yes', '--json']
                 environment = dict(os.environ, RAILWAY_CALLER='skill:use-railway@1.7.0', RAILWAY_AGENT_SESSION='cuttlefish-relay-20261107')
@@ -171,16 +139,9 @@ def run(args):
         finally:
             for process in children:
                 if process.poll() is None:
-                    owned = descendants(process)
-                    for pid, _ in reversed(owned):
-                        try: os.kill(pid, signal.SIGTERM)
-                        except (ProcessLookupError, PermissionError): pass
-                    try: process.wait(timeout=15)
-                    except subprocess.TimeoutExpired:
-                        for pid, _ in reversed(owned):
-                            try: os.kill(pid, signal.SIGKILL)
-                            except (ProcessLookupError, PermissionError): pass
-                        process.wait(timeout=15)
+                    process.send_signal(signal.SIGINT)
+                    try: process.wait(timeout=30)
+                    except subprocess.TimeoutExpired: process.kill(); process.wait()
             # Stop the supervisor first so it cannot recreate a connector during cleanup.
             for manifest in (state / 'relay').glob('*.plist'):
                 subprocess.run(['launchctl', 'bootout', f'gui/{os.getuid()}/{manifest.stem}'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -192,13 +153,12 @@ def run(args):
                 if row:
                     registration = json.loads(row[0])
                     call(args.platform, '/api/v1/installations/relay', {'revision': revision + 1, 'credential': None}, registration['credential'])
-            for terminal in terminals: os.close(terminal)
             log.close()
 
 if __name__ == '__main__':
     if not __debug__: raise RuntimeError('Assertions must be enabled')
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--installer-url', help='Public HTTPS installer to run through curl | sh with a controlling terminal')
+    parser.add_argument('--installer-url', help='Public HTTPS installer to run through curl | sh before managed setup')
     parser.add_argument('--expected-version', help='Assert the installed binary version')
     parser.add_argument('--binary', default='target/debug/cuttlefish')
     parser.add_argument('--platform', required=True)

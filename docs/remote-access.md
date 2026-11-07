@@ -153,8 +153,10 @@ supervisor restart. Disposable native connector services were removed afterwards
 
 `v0.2.0-alpha.2` is the first installation release with managed relay support.
 The earlier `v0.2.0-alpha.1` binaries do not contain the new setup choice.
-The public installer test uses an isolated directory and a real terminal to
-exercise `curl | sh`, interactive managed setup, repeat installation and recovery.
+The public installer test uses an isolated directory to exercise `curl | sh`,
+then starts the installed binary directly for managed setup, repeat installation
+and recovery. Owning the runtime directly keeps shell-wrapper shutdown out of
+the supervisor recovery assertions.
 
 Verified deployments in the Cuttlefish staging project:
 platform `a71eb9dd-2be7-4566-96af-f6856ee0092e`;

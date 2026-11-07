@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from "react";
-import { Label } from "./ui/label";
+import { Field, FieldLabel, FieldDescription } from "./ui/field";
 export function FormField({
   label,
   children,
@@ -11,10 +11,10 @@ export function FormField({
 }) {
   const id = useId();
   return (
-    <div className="form-field">
-      <Label htmlFor={id}>{label}</Label>
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
       {children(id)}
-      {description && <p className="field-help">{description}</p>}
-    </div>
+      {description && <FieldDescription>{description}</FieldDescription>}
+    </Field>
   );
 }

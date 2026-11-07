@@ -5,13 +5,19 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc -b && vite build --mode machine && vite build --mode platform",
+    "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "dev:platform": "vite --host 127.0.0.1 --mode platform",
+    "build:platform": "tsc -b && vite build --mode platform",
+    "build:embedded": "tsc -b && vite build --mode embedded-machine && vite build --mode embedded-platform",
+    "preview": "vite preview --host 127.0.0.1",
+    "preview:platform": "vite preview --host 127.0.0.1 --mode platform",
+    "test:vite": "node scripts/verify-vite.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.107.1",
@@ -53,5 +59,8 @@
   },
   "overrides": {
     "minimatch@>=7": "^11.0.1"
+  },
+  "engines": {
+    "node": ">=24 <25"
   }
 }

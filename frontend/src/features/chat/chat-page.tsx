@@ -1,3 +1,7 @@
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
 import { useEffect, useRef, useState } from "react";
 import { LogOut, Plus, Search, Settings } from "lucide-react";
 import { Button } from "../../components/ui/button";
@@ -111,7 +115,7 @@ export function ChatPage({
           <label className="sr-only" htmlFor="chat-workspace">
             Workspace and provider
           </label>
-          <select
+          <NativeSelect
             id="chat-workspace"
             aria-label="Workspace and provider"
             value={chat.workspace}
@@ -119,14 +123,14 @@ export function ChatPage({
             onChange={(e) => chat.setWorkspace(e.target.value)}
           >
             {!chat.workspaces.data?.length && (
-              <option value="">Select workspace</option>
+              <NativeSelectOption value="">Select workspace</NativeSelectOption>
             )}
             {chat.workspaces.data?.map(({ workspace: w }) => (
-              <option key={w.workspace_id} value={w.workspace_id}>
+              <NativeSelectOption key={w.workspace_id} value={w.workspace_id}>
                 {w.name} · {providerLabel(w.provider)}
-              </option>
+              </NativeSelectOption>
             ))}
-          </select>
+          </NativeSelect>
           {chat.thread && !chat.busy && !chat.ended && !locked && (
             <Button id="end-chat" variant="ghost" size="sm" onClick={chat.end}>
               End session

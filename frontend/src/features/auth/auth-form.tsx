@@ -1,3 +1,4 @@
+import { FieldGroup } from "@/components/ui/field";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -41,60 +42,62 @@ export function AuthForm({
           });
         }}
       >
-        {setup && (
-          <FormField label="Setup code">
+        <FieldGroup>
+          {setup && (
+            <FormField label="Setup code">
+              {(id) => (
+                <Input
+                  id={id}
+                  name="token"
+                  type="password"
+                  autoComplete="off"
+                  required
+                />
+              )}
+            </FormField>
+          )}
+          <FormField label="Username">
             {(id) => (
               <Input
                 id={id}
-                name="token"
-                type="password"
-                autoComplete="off"
+                name="username"
+                autoComplete="username"
                 required
+                minLength={3}
+                maxLength={64}
               />
             )}
           </FormField>
-        )}
-        <FormField label="Username">
-          {(id) => (
-            <Input
-              id={id}
-              name="username"
-              autoComplete="username"
-              required
-              minLength={3}
-              maxLength={64}
-            />
+          <FormField label="Password">
+            {(id) => (
+              <Input
+                id={id}
+                name="password"
+                type="password"
+                autoComplete={
+                  setup || register ? "new-password" : "current-password"
+                }
+                required
+                minLength={12}
+                maxLength={1024}
+              />
+            )}
+          </FormField>
+          <Button type="submit" disabled={mutation.isPending}>
+            {mutation.isPending
+              ? "Signing in…"
+              : setup
+                ? "Create administrator"
+                : register
+                  ? "Create account"
+                  : "Sign in"}
+          </Button>
+          {mutation.error && (
+            <p className="error" role="alert">
+              {errorMessage(mutation.error)}
+            </p>
           )}
-        </FormField>
-        <FormField label="Password">
-          {(id) => (
-            <Input
-              id={id}
-              name="password"
-              type="password"
-              autoComplete={
-                setup || register ? "new-password" : "current-password"
-              }
-              required
-              minLength={12}
-              maxLength={1024}
-            />
-          )}
-        </FormField>
-        <Button type="submit" disabled={mutation.isPending}>
-          {mutation.isPending
-            ? "Signing in…"
-            : setup
-              ? "Create administrator"
-              : register
-                ? "Create account"
-                : "Sign in"}
-        </Button>
-        {mutation.error && (
-          <p className="error" role="alert">
-            {errorMessage(mutation.error)}
-          </p>
-        )}
+        </FieldGroup>
       </form>
       {onToggle && (
         <Button variant="link" onClick={onToggle}>

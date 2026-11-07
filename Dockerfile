@@ -3,7 +3,7 @@ WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./frontend/
 RUN npm ci --prefix frontend
 COPY frontend ./frontend
-RUN npm run build --prefix frontend
+RUN npm run build:embedded --prefix frontend
 
 FROM rust:1.96.1-bookworm AS builder
 WORKDIR /build

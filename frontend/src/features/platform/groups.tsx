@@ -1,3 +1,4 @@
+import { FieldGroup } from "@/components/ui/field";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "../../lib/schema";
@@ -276,17 +277,19 @@ export function Groups() {
               );
             }}
           >
-            <FormField label="Group name">
-              {(id) => <Input id={id} name="name" required maxLength={128} />}
-            </FormField>
-            <Button type="submit" disabled={create.isPending}>
-              Create group
-            </Button>
-            {create.error && (
-              <p role="alert" className="error">
-                {errorMessage(create.error)}
-              </p>
-            )}
+            <FieldGroup>
+              <FormField label="Group name">
+                {(id) => <Input id={id} name="name" required maxLength={128} />}
+              </FormField>
+              <Button type="submit" disabled={create.isPending}>
+                Create group
+              </Button>
+              {create.error && (
+                <p role="alert" className="error">
+                  {errorMessage(create.error)}
+                </p>
+              )}
+            </FieldGroup>
           </form>
         </DialogContent>
       </main>

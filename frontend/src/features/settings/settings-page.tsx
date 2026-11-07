@@ -1,3 +1,9 @@
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldLabel, FieldGroup } from "@/components/ui/field";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
 import { useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "../../lib/schema";
@@ -67,52 +73,60 @@ function Remote({ remote }: { remote: Config["remote"] }) {
           );
         }}
       >
-        <FormField label="Access">
-          {(id) => (
-            <select
-              id={id}
-              value={mode}
-              onChange={(e) => setMode(e.target.value as typeof mode)}
-            >
-              <option value="local">Local only</option>
-              <option value="managed">Cuttlefish managed relay</option>
-              <option value="existing">Existing HTTPS address</option>
-            </select>
-          )}
-        </FormField>
-        {mode === "existing" && (
-          <FormField label="HTTPS address">
+        <FieldGroup>
+          <FormField label="Access">
             {(id) => (
-              <Input
+              <NativeSelect
                 id={id}
-                name="origin"
-                type="url"
-                defaultValue={remote.choice.origin}
-                required
-              />
+                value={mode}
+                onChange={(e) => setMode(e.target.value as typeof mode)}
+              >
+                <NativeSelectOption value="local">
+                  Local only
+                </NativeSelectOption>
+                <NativeSelectOption value="managed">
+                  Cuttlefish managed relay
+                </NativeSelectOption>
+                <NativeSelectOption value="existing">
+                  Existing HTTPS address
+                </NativeSelectOption>
+              </NativeSelect>
             )}
           </FormField>
-        )}
-        <div className="form-actions">
-          <Button type="submit" disabled={mutation.isPending}>
-            Save access
-          </Button>
-          <span>{remote.state.replaceAll("_", " ")}</span>
-        </div>
-        <Result
-          pending={mutation.isPending}
-          error={mutation.error}
-          success={mutation.isSuccess}
-        />
-        {url && remote.state === "ready" && (
-          <a
-            href={url.replace(/\/$/, "") + "/"}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Open remote dashboard
-          </a>
-        )}
+          {mode === "existing" && (
+            <FormField label="HTTPS address">
+              {(id) => (
+                <Input
+                  id={id}
+                  name="origin"
+                  type="url"
+                  defaultValue={remote.choice.origin}
+                  required
+                />
+              )}
+            </FormField>
+          )}
+          <div className="form-actions">
+            <Button type="submit" disabled={mutation.isPending}>
+              Save access
+            </Button>
+            <span>{remote.state.replaceAll("_", " ")}</span>
+          </div>
+          <Result
+            pending={mutation.isPending}
+            error={mutation.error}
+            success={mutation.isSuccess}
+          />
+          {url && remote.state === "ready" && (
+            <a
+              href={url.replace(/\/$/, "") + "/"}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open remote dashboard
+            </a>
+          )}
+        </FieldGroup>
       </form>
     </Section>
   );
@@ -192,41 +206,45 @@ function Workspaces() {
           });
         }}
       >
-        <FormField label="Workspace name">
-          {(id) => (
-            <Input
-              id={id}
-              name="name"
-              required
-              maxLength={128}
-              disabled={create.isPending}
-            />
-          )}
-        </FormField>
-        <FormField label="Provider">
-          {(id) => (
-            <select id={id} name="provider">
-              <option value="codex">Codex</option>
-              <option value="claude">Claude Code</option>
-            </select>
-          )}
-        </FormField>
-        <label className="checkbox-label">
-          <input type="checkbox" name="edits" />
-          Allow file edits
-        </label>
-        <p className="field-help">
-          Creates a separate local folder. Permissions are fixed for this
-          workspace.
-        </p>
-        <Button type="submit" disabled={create.isPending}>
-          Create workspace
-        </Button>
-        <Result
-          pending={create.isPending}
-          error={create.error}
-          success={create.isSuccess}
-        />
+        <FieldGroup>
+          <FormField label="Workspace name">
+            {(id) => (
+              <Input
+                id={id}
+                name="name"
+                required
+                maxLength={128}
+                disabled={create.isPending}
+              />
+            )}
+          </FormField>
+          <FormField label="Provider">
+            {(id) => (
+              <NativeSelect id={id} name="provider">
+                <NativeSelectOption value="codex">Codex</NativeSelectOption>
+                <NativeSelectOption value="claude">
+                  Claude Code
+                </NativeSelectOption>
+              </NativeSelect>
+            )}
+          </FormField>
+          <Field orientation="horizontal">
+            <Checkbox id="workspace-edits" name="edits" />
+            <FieldLabel htmlFor="workspace-edits">Allow file edits</FieldLabel>
+          </Field>
+          <p className="field-help">
+            Creates a separate local folder. Permissions are fixed for this
+            workspace.
+          </p>
+          <Button type="submit" disabled={create.isPending}>
+            Create workspace
+          </Button>
+          <Result
+            pending={create.isPending}
+            error={create.error}
+            success={create.isSuccess}
+          />
+        </FieldGroup>
       </form>
       <ul className="workspace-rows">
         {rows.data?.map(({ workspace: w, directory }) => (
@@ -282,63 +300,69 @@ function Database({ database }: { database: Config["database"] }) {
             );
           }}
         >
-          <FormField label="Database setup">
-            {(id) => (
-              <select
-                id={id}
-                value={mode}
-                onChange={(e) => setMode(e.target.value)}
-              >
-                <option value="managed">
-                  Create PostgreSQL on this machine
-                </option>
-                <option value="existing">Use existing PostgreSQL</option>
-                <option value="later">Set up later</option>
-              </select>
+          <FieldGroup>
+            <FormField label="Database setup">
+              {(id) => (
+                <NativeSelect
+                  id={id}
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value)}
+                >
+                  <NativeSelectOption value="managed">
+                    Create PostgreSQL on this machine
+                  </NativeSelectOption>
+                  <NativeSelectOption value="existing">
+                    Use existing PostgreSQL
+                  </NativeSelectOption>
+                  <NativeSelectOption value="later">
+                    Set up later
+                  </NativeSelectOption>
+                </NativeSelect>
+              )}
+            </FormField>
+            {mode === "managed" && (
+              <FormField label="Local port">
+                {(id) => (
+                  <Input
+                    id={id}
+                    name="port"
+                    type="number"
+                    required
+                    min={1024}
+                    max={65535}
+                    defaultValue={54329}
+                  />
+                )}
+              </FormField>
             )}
-          </FormField>
-          {mode === "managed" && (
-            <FormField label="Local port">
-              {(id) => (
-                <Input
-                  id={id}
-                  name="port"
-                  type="number"
-                  required
-                  min={1024}
-                  max={65535}
-                  defaultValue={54329}
-                />
-              )}
-            </FormField>
-          )}
-          {mode === "existing" && (
-            <FormField label="PostgreSQL connection URL">
-              {(id) => (
-                <Input
-                  id={id}
-                  name="url"
-                  type="password"
-                  autoComplete="off"
-                  required
-                />
-              )}
-            </FormField>
-          )}
-          {mode === "managed" && (
-            <p className="field-help">
-              Installs Docker if needed. Database files stay on this machine;
-              only the router connects to PostgreSQL.
-            </p>
-          )}
-          <Button type="submit" disabled={mutation.isPending}>
-            Save database
-          </Button>
-          <Result
-            pending={mutation.isPending}
-            error={mutation.error}
-            success={mutation.isSuccess}
-          />
+            {mode === "existing" && (
+              <FormField label="PostgreSQL connection URL">
+                {(id) => (
+                  <Input
+                    id={id}
+                    name="url"
+                    type="password"
+                    autoComplete="off"
+                    required
+                  />
+                )}
+              </FormField>
+            )}
+            {mode === "managed" && (
+              <p className="field-help">
+                Installs Docker if needed. Database files stay on this machine;
+                only the router connects to PostgreSQL.
+              </p>
+            )}
+            <Button type="submit" disabled={mutation.isPending}>
+              Save database
+            </Button>
+            <Result
+              pending={mutation.isPending}
+              error={mutation.error}
+              success={mutation.isSuccess}
+            />
+          </FieldGroup>
         </form>
       )}
       {database.state === "failed" && (
@@ -389,41 +413,43 @@ function Model({ model }: { model: Config["model"] }) {
           );
         }}
       >
-        <FormField label="Provider endpoint">
-          {(id) => (
-            <Input
-              id={id}
-              name="endpoint"
-              type="url"
-              required
-              defaultValue="https://api.openai.com/v1/responses"
-            />
-          )}
-        </FormField>
-        <FormField label="Model">
-          {(id) => <Input id={id} name="model" required maxLength={128} />}
-        </FormField>
-        <FormField label="API key">
-          {(id) => (
-            <Input
-              id={id}
-              name="key"
-              value={secret}
-              onChange={(event) => setSecret(event.target.value)}
-              type="password"
-              autoComplete="off"
-              required
-            />
-          )}
-        </FormField>
-        <Button type="submit" disabled={mutation.isPending}>
-          Save model
-        </Button>
-        <Result
-          pending={mutation.isPending}
-          error={mutation.error}
-          success={mutation.isSuccess}
-        />
+        <FieldGroup>
+          <FormField label="Provider endpoint">
+            {(id) => (
+              <Input
+                id={id}
+                name="endpoint"
+                type="url"
+                required
+                defaultValue="https://api.openai.com/v1/responses"
+              />
+            )}
+          </FormField>
+          <FormField label="Model">
+            {(id) => <Input id={id} name="model" required maxLength={128} />}
+          </FormField>
+          <FormField label="API key">
+            {(id) => (
+              <Input
+                id={id}
+                name="key"
+                value={secret}
+                onChange={(event) => setSecret(event.target.value)}
+                type="password"
+                autoComplete="off"
+                required
+              />
+            )}
+          </FormField>
+          <Button type="submit" disabled={mutation.isPending}>
+            Save model
+          </Button>
+          <Result
+            pending={mutation.isPending}
+            error={mutation.error}
+            success={mutation.isSuccess}
+          />
+        </FieldGroup>
       </form>
     </Section>
   );

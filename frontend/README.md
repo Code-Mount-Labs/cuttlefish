@@ -4,24 +4,46 @@ React + TypeScript, Vite, Tailwind CSS, and shadcn/ui. Both the machine dashboar
 
 ## Develop
 
-Use Node 24 and npm. From the repository root:
+This directory is the standalone Vite React TypeScript web project. Use Node 24 and npm, just as with a `create-vite` React TypeScript application.
 
 ```sh
-npm ci --prefix frontend
-npm run dev --prefix frontend
+cd frontend
+npm ci
+npm run dev
 ```
 
-The development server proxies `/api` to the local machine dashboard on port 64160. `CUTTLEFISH_DEV_API=http://127.0.0.1:8080 npm run dev --prefix frontend -- --mode platform` selects the hosted group dashboard. The loopback-only development proxy translates only its own exact browser origin, keeping the backend origin checks intact.
+Open http://127.0.0.1:5173. For the hosted account and group dashboard, run `npm run dev:platform` instead. Both entry modes share the components and application features under `src/`.
+
+The development server proxies `/api` to the local machine dashboard on port 64160. Set `CUTTLEFISH_DEV_API` in your shell to select a running API, for example `CUTTLEFISH_DEV_API=http://127.0.0.1:8080 npm run dev:platform`. The exact loopback development and preview origins are translated for the backend's same-origin checks. Credentials and provider keys belong in the backend configuration.
+
+## Build and preview
 
 ```sh
-npm run format:check --prefix frontend
-npm run lint --prefix frontend
-npm run test --prefix frontend
-npm run coverage --prefix frontend
-npm run build --prefix frontend
+npm run build
+npm run preview
 ```
 
-The build produces `web/local/{index.html,app.js,app.css}` and `web/{index.html,app.js,app.css}`. These generated assets are checked in because the Rust binaries embed them and must build without a JavaScript toolchain. Edit `frontend/src`, never the generated files. CI rebuilds and rejects stale assets. Containers rebuild from the locked frontend source. Browser contract tests exercise the same embedded assets, including the installation-specific relay prefix.
+The normal production build outputs `dist/` with hashed assets. Preview opens on http://127.0.0.1:4173. For the hosted dashboard, use `npm run build:platform` followed by `npm run preview:platform`. Its output is `dist/platform/`. Deploy the selected output directory with `/api` routed to the matching backend.
+
+The Rust distributions use a separate packaging command, `npm run build:embedded`. It generates `../web/local/{index.html,app.js,app.css}` and `../web/{index.html,app.js,app.css}` with stable filenames required by the Rust asset handlers. Those generated assets are checked in so Rust users can compile without Node. Containers and CI run this packaging command. Edit `src/`, then regenerate the embedded assets when shipping changes.
+
+## Components and checks
+
+`components.json` configures the official shadcn CLI for Vite, Tailwind v4, the Radix base, and the `@/` import alias. Components live in `src/components/ui/` and are composed by features. Forms use `FieldGroup`, `Field`, `FieldLabel`, `FieldDescription`, `Input`, `NativeSelect`, and `Checkbox`. Buttons, textareas, and dialogs use the same shadcn primitives and semantic theme tokens.
+
+```sh
+npx shadcn@latest info
+npx shadcn@latest add <component>
+npm run typecheck
+npm run lint
+npm run coverage
+npm run test:vite # after building both standalone entry points
+npm run format:check
+```
+
+Review registry updates before applying them. This project customizes dialog scroll containment for its Content Security Policy and retains only the field primitives used by the application. The coverage gate requires 100% statements, branches, functions, and lines, including the checked-in UI components.
+
+TypeScript separates browser source (`tsconfig.app.json`), Node build tools (`tsconfig.node.json`), and test types (`tsconfig.test.json`). `tsconfig.json` references all three. The `@/` alias is configured for TypeScript, Vite, Vitest, and shadcn.
 
 ## Boundaries
 
@@ -42,3 +64,5 @@ TanStack Query owns server data, cancellation and polling. Component state owns 
 The primary action is writing a message. Keep the sidebar compact, the transcript readable, and progress near the task it describes. No promotional subtitles, decorative metrics, gradients, or invented progress. The only automatic motion is an active task indicator, disabled with reduced motion. Forms have visible labels, icon buttons have accessible names, mobile navigation and dialogs manage focus through Radix, and failure feedback includes an action the user can take.
 
 Design guidance reviewed: https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md . shadcn/ui components originate from https://ui.shadcn.com (MIT).
+
+The shadcn project conventions were verified with the official [shadcn skill](https://github.com/shadcn-ui/ui/blob/main/skills/shadcn/SKILL.md).

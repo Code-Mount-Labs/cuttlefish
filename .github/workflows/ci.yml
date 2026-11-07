@@ -23,6 +23,9 @@ jobs:
       - run: npm run lint --prefix frontend
       - run: npm run coverage --prefix frontend
       - run: npm run build --prefix frontend
+      - run: npm run build:platform --prefix frontend
+      - run: npm run test:vite --prefix frontend
+      - run: npm run build:embedded --prefix frontend
       - name: Verify embedded assets match source
         run: git diff --exit-code -- web
       - name: Upload frontend coverage

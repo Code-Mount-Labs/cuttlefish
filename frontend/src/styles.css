@@ -107,17 +107,6 @@ p {
 svg {
   flex-shrink: 0;
 }
-select {
-  border: 1px solid var(--border);
-  background: transparent;
-  color: inherit;
-  border-radius: 6px;
-  padding: 8px 30px 8px 10px;
-  max-width: 100%;
-}
-select option {
-  background: #222;
-}
 .error {
   color: var(--destructive);
   font-size: 13px;
@@ -220,12 +209,9 @@ select option {
   padding: 0 24px;
   gap: 16px;
 }
-.conversation-header select {
-  border: 0;
-  font-weight: 500;
-  width: auto;
-  max-width: 75%;
-  padding-left: 0;
+.conversation-header [data-slot="native-select-wrapper"] {
+  min-width: 0;
+  max-width: calc(100% - 110px);
 }
 .conversation-header > button {
   margin-left: auto;
@@ -519,17 +505,6 @@ th {
 .auth-page h1 {
   margin-bottom: 24px;
 }
-form:not(.composer) {
-  display: grid;
-  gap: 18px;
-}
-.form-field {
-  display: grid;
-  gap: 8px;
-}
-.form-field select {
-  width: 100%;
-}
 .form-actions,
 .row-actions {
   display: flex;
@@ -578,11 +553,6 @@ form:not(.composer) {
 }
 .settings-section > button {
   margin-bottom: 12px;
-}
-.checkbox-label {
-  display: flex;
-  gap: 9px;
-  align-items: center;
 }
 .workspace-rows {
   list-style: none;

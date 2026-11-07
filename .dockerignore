@@ -10,3 +10,4 @@ private
 
 frontend/node_modules
 frontend/coverage
+frontend/dist

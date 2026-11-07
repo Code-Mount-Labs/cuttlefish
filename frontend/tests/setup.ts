@@ -25,3 +25,11 @@ afterEach(() => {
   sessionStorage.clear();
   history.replaceState(null, "", "/");
 });
+
+// jsdom has no layout engine. Radix observes checkbox size in real browsers.
+class TestResizeObserver implements ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver = TestResizeObserver;

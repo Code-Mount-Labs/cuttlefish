@@ -210,3 +210,41 @@ async fn enrollment_is_atomic_and_read_errors_propagate() {
     assert!(f.store.events(&data::token(), 0).await.is_err());
     f.close().await;
 }
+
+#[tokio::test]
+async fn credential_identity_is_exact_revocable_and_rejects_corruption() {
+    let f = Fixture::enrolled().await;
+    let report = data::report();
+    let token = data::token();
+    assert_eq!(
+        f.store.identity(&token).await.expect("identity"),
+        (report.group_id, report.node_id)
+    );
+    assert!(
+        f.store
+            .identity(&NodeToken::try_from("b".repeat(64)).expect("unknown"))
+            .await
+            .is_err()
+    );
+    f.sql("INSERT INTO groups(group_id) VALUES('00000000-0000-0000-0000-000000000000'); UPDATE nodes SET group_id='00000000-0000-0000-0000-000000000000'").await;
+    assert!(f.store.identity(&token).await.is_err());
+    sqlx::query("UPDATE nodes SET group_id=$1,node_id='00000000-0000-0000-0000-000000000000'")
+        .bind(uuid::Uuid::from(report.group_id))
+        .execute(&f.raw)
+        .await
+        .expect("corrupt node");
+    assert!(f.store.identity(&token).await.is_err());
+    sqlx::query("UPDATE nodes SET node_id=$1")
+        .bind(uuid::Uuid::from(report.node_id))
+        .execute(&f.raw)
+        .await
+        .expect("restore");
+    f.store
+        .revoke(report.group_id, report.node_id)
+        .await
+        .expect("revoke");
+    assert!(f.store.identity(&token).await.is_err());
+    f.store.close().await;
+    assert!(f.store.identity(&token).await.is_err());
+    f.close().await;
+}

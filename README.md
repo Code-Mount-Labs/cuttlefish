@@ -715,3 +715,5 @@ budgets, per-target approval, immutable releases and prompt loading. Model HTTP
 calls are mocked; no claim is made about real-model planning quality or real
 third-party installer behavior. See the [prompt library](prompts/README.md) for
 review and reload instructions.
+
+Local provisioning and Docker setup: [development instructions and current scope](docs/local-installation.md).

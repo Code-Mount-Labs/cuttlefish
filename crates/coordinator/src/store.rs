@@ -65,6 +65,20 @@ impl Store {
         Ok(())
     }
 
+    /// Resolve a transport credential to its exact group and node identity.
+    ///
+    /// # Errors
+    /// Rejects unknown or revoked credentials and unavailable or corrupt storage.
+    pub async fn identity(&self, token: &NodeToken) -> Result<(GroupId, NodeId), Error> {
+        let mut tx = self.pool.begin().await?;
+        let (group, node) = authenticate(&mut tx, token).await?;
+        let group = GroupId::try_from(group)
+            .map_err(|_| sqlx::Error::Decode("invalid group identity".into()))?;
+        let node = NodeId::try_from(node)
+            .map_err(|_| sqlx::Error::Decode("invalid node identity".into()))?;
+        Ok((group, node))
+    }
+
     /// Revoke a credential without removing its historical events.
     ///
     /// # Errors

@@ -437,6 +437,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "cuttlefish-machine"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "axum",
+ "clap",
+ "cuttlefish-platform",
+ "orchestrator-coordinator",
+ "orchestrator-node",
+ "orchestrator-prompts",
+ "orchestrator-protocol",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tower",
+ "uuid",
+]
+
+[[package]]
 name = "cuttlefish-platform"
 version = "0.1.0"
 dependencies = [

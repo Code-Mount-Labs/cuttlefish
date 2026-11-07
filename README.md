@@ -107,6 +107,10 @@ excluded from the report; no production modules or error paths are excluded.
 Dependencies and compiler-generated code are not a guarantee of this metric.
 Stable LLVM region coverage is not branch coverage or proof of correctness.
 
+The dashboards use React, TypeScript, and shadcn/ui. Frontend development,
+architecture, and build instructions are in [frontend/README.md](frontend/README.md).
+Their separate coverage gate requires 100% statements, branches, functions, and lines.
+
 To create a browsable report after running coverage:
 
 ```sh

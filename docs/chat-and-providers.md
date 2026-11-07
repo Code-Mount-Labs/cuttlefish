@@ -13,7 +13,7 @@ line, function, and region coverage; passing a live demo does not bypass that ga
 3. In Settings, check the local provider sign-ins and create a named workspace.
    Choose its provider and whether it may edit files. This configuration is
    immutable; create another workspace for different permissions.
-4. On the router dashboard, select that workspace in **Chat & tasks**. Workspaces
+4. On the router dashboard, select that workspace in the chat header. Workspaces
    appear after the execution machine advertises them. The router can live on a
    different computer; it does not run the provider CLI.
 
@@ -24,6 +24,12 @@ restart its specialist. An uncertain provider execution is never automatically
 replayed on another machine.
 
 ## Interaction
+
+Both dashboards use React and TypeScript, shadcn/ui primitives, and a shared
+minimal design system. TanStack Query manages validated JSON data and polling;
+component state owns drafts. See [frontend development](../frontend/README.md).
+The frontend has its own 100% statement, branch, function, and line coverage gate,
+in addition to the unchanged Rust gate. Browser checks use the production CSP.
 
 The desktop and mobile chat surface includes recent conversations, search, new
 chats, a workspace/provider picker, formatted replies, copy controls, file input,

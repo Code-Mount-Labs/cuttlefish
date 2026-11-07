@@ -22,7 +22,8 @@ const workspace = {
 const requests = [],
   uploads = [];
 let accepted = null,
-  failNext = true;
+  failNext = true,
+  signedIn = true;
 const server = createServer(async (req, res) => {
   try {
     const fullPath = new URL(req.url, "http://localhost").pathname;
@@ -31,6 +32,10 @@ const server = createServer(async (req, res) => {
       return;
     }
     const path = fullPath.slice(base.length);
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    );
     if (!path.startsWith("/api/local/")) {
       const asset = {
         "/": "index.html",
@@ -57,6 +62,12 @@ const server = createServer(async (req, res) => {
     const body = bytes ? JSON.parse(bytes) : null;
     const route = path.slice("/api/local/".length);
     let value;
+    if (route === "config" && !signedIn) {
+      res
+        .writeHead(401, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ error: "unauthorized" }));
+      return;
+    }
     if (route === "status") value = { initialized: true };
     else if (route === "config")
       value = {
@@ -136,8 +147,10 @@ const server = createServer(async (req, res) => {
       }
       accepted = body;
       value = { request: body, state: "claimed", outcome: null };
-    } else if (route === "logout") value = { ok: true };
-    else {
+    } else if (route === "logout") {
+      signedIn = false;
+      value = { ok: true };
+    } else {
       res
         .writeHead(404)
         .end(JSON.stringify({ error: "unknown_fixture_route" }));
@@ -220,6 +233,10 @@ try {
     return result.result.value;
   };
   await cmd("Page.enable");
+  await cmd("Page.addScriptToEvaluateOnNewDocument", {
+    source:
+      "window.cspViolations=[];document.addEventListener('securitypolicyviolation',e=>window.cspViolations.push(e.violatedDirective));",
+  });
   await cmd("Runtime.enable");
   await cmd("Emulation.setDeviceMetricsOverride", {
     width: 1440,
@@ -247,8 +264,9 @@ try {
     ),
   );
   await evaluate(
-    "document.getElementById('chat-message').value='Summarize the costs';document.getElementById('chat-form').requestSubmit()",
+    "Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(document.getElementById('chat-message'),'Summarize the costs');document.getElementById('chat-message').dispatchEvent(new Event('input',{bubbles:true}))",
   );
+  await evaluate("document.getElementById('chat-form').requestSubmit()");
   await until(() =>
     evaluate(
       "document.getElementById('notice').textContent.length>0&&!document.getElementById('chat-send').disabled",
@@ -284,17 +302,6 @@ try {
       await evaluate("document.querySelector('.activity-timeline').textContent")
     ).includes("Claude Code is reading files"),
   );
-  const progress = await evaluate(`(() => {
-    const turn = {state:"claimed"};
-    return [activityState(turn,[{phase:"reading_files",provider:"claude"}],Date.now()).title,
-      activityState(turn,[{phase:"needs_attention",provider:"codex"}],Date.now()).tone,
-      activityState(turn,[],Date.now()-60000).title];
-  })()`);
-  assert.deepEqual(progress, [
-    "Claude Code is reading files…",
-    "attention",
-    "Agent connection interrupted",
-  ]);
   assert.equal(requests.length, 2);
   assert.deepEqual(requests[0], requests[1]);
   assert.equal(
@@ -317,6 +324,13 @@ try {
     await evaluate("document.documentElement.scrollWidth>innerWidth"),
     false,
   );
+  const desktopScreenshot = await cmd("Page.captureScreenshot", {
+    format: "png",
+  });
+  await writeFile(
+    "/tmp/cuttlefish-react-desktop.png",
+    Buffer.from(desktopScreenshot.data, "base64"),
+  );
   await cmd("Emulation.setDeviceMetricsOverride", {
     width: 390,
     height: 844,
@@ -327,13 +341,43 @@ try {
     await evaluate("document.documentElement.scrollWidth>innerWidth"),
     false,
   );
+  await until(() => evaluate("!!document.getElementById('mobile-menu')"));
   await evaluate("document.getElementById('mobile-menu').click()");
+  await until(() => evaluate("!!document.querySelector('[role=dialog]')"));
   assert.equal(
-    await evaluate("document.body.classList.contains('sidebar-open')"),
+    await evaluate("!!document.querySelector('[role=dialog]')"),
     true,
   );
+  await cmd("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x: 350,
+    y: 400,
+    button: "left",
+    clickCount: 1,
+  });
+  await cmd("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: 350,
+    y: 400,
+    button: "left",
+    clickCount: 1,
+  });
+  await until(() => evaluate("!document.querySelector('[role=dialog]')"));
+  assert.equal(await evaluate("document.activeElement.id"), "mobile-menu");
+  await evaluate("document.getElementById('mobile-menu').click()");
+  await until(() => evaluate("!!document.querySelector('[role=dialog]')"));
+  assert.deepEqual(
+    await evaluate("window.cspViolations"),
+    [],
+    "UI must respect the production content security policy",
+  );
+  const screenshot = await cmd("Page.captureScreenshot", { format: "png" });
+  await writeFile(
+    "/tmp/cuttlefish-react-mobile.png",
+    Buffer.from(screenshot.data, "base64"),
+  );
   await evaluate("document.getElementById('logout').click()");
-  await until(() => evaluate("!document.getElementById('auth').hidden"));
+  await until(() => evaluate("!!document.getElementById('auth')"));
   assert.equal(
     await evaluate("document.querySelectorAll('#messages .message').length"),
     0,

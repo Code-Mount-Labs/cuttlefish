@@ -13,3 +13,7 @@
 /private/
 
 __pycache__/
+
+/frontend/node_modules/
+/frontend/coverage/
+/frontend/*.tsbuildinfo

@@ -15,7 +15,7 @@ SQLite journal and supervised specialist processes. Specialists can use the dete
 local Codex/Claude Code adapter. A separate coordination service authenticates
 nodes and stores shared routing context in PostgreSQL. It has no execution powers.
 It now makes constrained LLM routing decisions and delivers tasks with durable
-thread/session affinity and conservative failover. The current development increment adds [chat, attachments, and local providers](docs/chat-and-providers.md), plus [scheduled routes and reusable workflows](docs/routes-and-workflows.md). A separate JSON-first hosted platform
+thread/session affinity and conservative failover. The current development increment adds [chat, attachments, and local providers](docs/chat-and-providers.md), plus [independent scheduled routines and reusable workflows](docs/routines-and-workflows.md). A separate JSON-first hosted platform
 now provides accounts, groups, and the installation directory. The node can now plan goals, delegate child tasks,
 track progress, and propose catalog-backed learning with human approval.
 See [Super-agent collaboration](#super-agent-collaboration) and the
@@ -58,8 +58,23 @@ installation is deferred. This alpha runs in the foreground; automatic OS servic
 registration for the main process is not yet included. Managed remote access installs
 its own recoverable connector service. Choose local-only, Cuttlefish-managed HTTPS,
 or an existing HTTPS address during setup; see [remote access](docs/remote-access.md).
-This published alpha predates the chat/provider development increment.
+The documentation describes the current source; check the release notes for the
+features included in an installed version.
 See [local setup and database choices](docs/local-installation.md).
+
+## Using the dashboard
+
+The installation sidebar provides **Chats**, **Routines**, **Workflows**, and
+**Plugins**. Chats support follow-ups, attachments, and provider activity.
+Routines schedule a prompt in an agent workspace without requiring a workflow.
+Workflows save prompts for repeated manual runs. Plugins is reserved for future
+integrations. See [chat and providers](docs/chat-and-providers.md) and
+[routines and workflows](docs/routines-and-workflows.md).
+
+Change the installation administrator password in **Settings → Password**, or
+the hosted account password in **Account → Password**. These are separate
+accounts. Both changes require the current password and sign that account out
+on all devices. See [password management](docs/local-installation.md#passwords).
 
 ## Workspace
 

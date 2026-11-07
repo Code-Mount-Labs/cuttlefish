@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory(prefix='cuttlefish-release-') as folder:
     assets.append(str(sums))
     hashes[sums.name] = hashlib.sha256(sums.read_bytes()).hexdigest()
     notes = root / 'notes.md'
-    notes.write_text(f'''Cuttlefish {tag} includes the new chat dashboard, scheduled Routes, reusable Workflows, and local Codex/Claude Code providers over managed HTTPS. It fixes completed workflow sessions occupying worker capacity: durable cleanup now releases each workflow session while preserving its results.
+    notes.write_text(f'''Cuttlefish {tag} includes a refined chat dashboard, independent scheduled Routines, reusable Workflows, password changes, and local Codex/Claude Code providers over managed HTTPS. It fixes completed workflow sessions occupying worker capacity: durable cleanup now releases each workflow session while preserving its results.
 
 Create a group at https://platform-production-105c.up.railway.app, choose **Connect a machine**, then run:
 
@@ -73,13 +73,13 @@ curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/{reposit
 
 Choose **managed**, **local**, or an existing HTTPS address. Complete first-time administrator setup locally before managed access activates.
 
-Includes the selected Mira/cyan shadcn preset with locally bundled fonts, attachments and artifacts, provider progress, durable workflow runs, and scheduled task recovery. Existing provider sign-ins stay on the execution machine. Installation-scoped relay authorization and customer-owned PostgreSQL remain separate from the hosted directory database.
+Includes the selected Mira/cyan shadcn preset with locally bundled fonts, attachments and artifacts, grouped provider progress, durable workflow runs, and scheduled task recovery. Routines accept their own prompts and agent workspaces, without a Workflow prerequisite. Existing schedules migrate with their identities and timing preserved. Change local credentials in Settings → Password, or hosted credentials in Account → Password; changing a password signs out existing sessions. Existing provider sign-ins stay on the execution machine. Installation-scoped relay authorization and customer-owned PostgreSQL remain separate from the hosted directory database.
 
 To update an existing installation without starting setup again, run the same installer with `CUTTLEFISH_NO_SETUP=1`, then restart Cuttlefish using its existing state directory. Back up the state directory and execution database before updating.
 
 Linux and macOS: ARM64 and x86-64. All archives are checksum-verified. [Build verification]({run['html_url']}) and [Rust CI]({check['html_url']}) passed, including the unchanged 100% line, function and region coverage gate.
 
-This alpha uses Cuttlefish staging. The main process runs in the foreground; the connector has its own OS service. Public relay access supports JSON polling; streaming/WebSockets and Windows installation remain deferred. Routes use elapsed intervals rather than calendar cron; Plugins is reserved for future integrations.
+This alpha uses Cuttlefish staging. The main process runs in the foreground; the connector has its own OS service. Public relay access supports JSON polling; streaming/WebSockets and Windows installation remain deferred. Routines use elapsed intervals rather than calendar cron; Plugins is reserved for future integrations.
 ''')
     release = next((item for item in api('releases?per_page=100') if item['tag_name'] == tag), None)
     if release is None:

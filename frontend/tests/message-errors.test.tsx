@@ -1,5 +1,11 @@
 import { it, expect, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  createEvent,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Message } from "../src/features/chat/message";
@@ -99,7 +105,18 @@ it("composer handles browser file and keyboard events according to locked state"
   fireEvent.keyDown(box, { key: "Enter", isComposing: true });
   fireEvent.keyDown(box, { key: "a" });
   expect(send).not.toHaveBeenCalled();
+  fireEvent.dragOver(form, { dataTransfer: { types: ["Files"] } });
+  expect(screen.getByText("Drop files to attach")).toBeVisible();
+  const internalLeave = createEvent.dragLeave(form);
+  Object.defineProperty(internalLeave, "relatedTarget", { value: box });
+  fireEvent(form, internalLeave);
+  expect(screen.getByText("Drop files to attach")).toBeVisible();
+  fireEvent.dragLeave(form, { relatedTarget: null });
+  expect(screen.queryByText("Drop files to attach")).toBeNull();
+  fireEvent.dragOver(form, { dataTransfer: { types: ["text/plain"] } });
+  expect(screen.queryByText("Drop files to attach")).toBeNull();
   rerender(<Composer {...props} locked disabled attachments={false} />);
+  fireEvent.dragOver(form, { dataTransfer: { types: ["Files"] } });
   fireEvent.drop(form, { dataTransfer: { files: [] } });
   fireEvent.paste(box, {
     clipboardData: { files: [new File(["x"], "no.txt")] },
@@ -154,7 +171,7 @@ it("activity distinguishes terminal and uncertain states", () => {
       lastSeen={Date.now()}
     />,
   );
-  expect(screen.getByText("2 updates")).toBeVisible();
+  expect(screen.getByText("View activity")).toBeVisible();
 });
 it("the render error recovery action reloads the page", () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -167,4 +184,30 @@ it("the render error recovery action reloads the page", () => {
     </ErrorBoundary>,
   );
   fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+});
+
+it("collapses repeated activity while preserving a provider handoff", () => {
+  const event = {
+    command_id: "c",
+    sequence: 1,
+    phase: "working" as const,
+    provider: "codex" as const,
+    at_ms: 1,
+  };
+  render(
+    <TaskActivity
+      turn={turn}
+      lastSeen={Date.now()}
+      events={[
+        event,
+        { ...event, sequence: 2 },
+        { ...event, sequence: 3, provider: "claude" },
+        { ...event, sequence: 4, phase: "reading_files", provider: "claude" },
+      ]}
+    />,
+  );
+  expect(screen.getAllByRole("listitem")).toHaveLength(3);
+  expect(screen.getByText("Codex is working")).toBeInTheDocument();
+  expect(screen.getByText("Claude Code is working")).toBeInTheDocument();
+  expect(screen.getByText("Claude Code is reading files")).toBeInTheDocument();
 });

@@ -1,10 +1,14 @@
 import { it, expect, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AutomationPage } from "../src/features/automations/automation-page";
-import { ChatPage } from "../src/features/chat/chat-page";
-import { config, workspace, json } from "./fixtures";
+import { workspace, json } from "./fixtures";
+import {
+  localTime,
+  formatTime,
+  schedulePreview,
+} from "../src/features/automations/model";
 
 const workflow = {
   id: "00000000-0000-0000-0000-000000000101",
@@ -13,11 +17,10 @@ const workflow = {
   workspace_id: workspace.workspace_id,
   instructions: "Review this project",
 };
-const route = {
+const routine = {
+  ...workflow,
   id: "00000000-0000-0000-0000-000000000102",
-  revision: 1,
   name: "Morning",
-  workflow_id: workflow.id,
   enabled: true,
   first_run_ms: Date.now() + 3600000,
   interval_minutes: 1440,
@@ -26,21 +29,25 @@ const route = {
 const run = {
   id: "00000000-0000-0000-0000-000000000103",
   workflow_id: workflow.id,
-  route_id: route.id,
+  routine_id: null,
+  route_id: null,
   thread_id: "00000000-0000-0000-0000-000000000103",
   created_ms: Date.now(),
   state: "completed",
   error: null,
 };
-function mount(node: React.ReactNode) {
+const empty = { workflows: [], routines: [], runs: [] };
+function mount(section: "routines" | "workflows", open = vi.fn()) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
-    <QueryClientProvider client={client}>{node}</QueryClientProvider>,
+    <QueryClientProvider client={client}>
+      <AutomationPage section={section} onOpenChat={open} />
+    </QueryClientProvider>,
   );
 }
-it("creates and edits reusable workflows, retries the same run identity, and opens run history", async () => {
+it("creates and edits reusable prompts, safely retries a run, and opens its conversation", async () => {
   const user = userEvent.setup(),
     open = vi.fn(),
     bodies: Record<string, unknown>[] = [];
@@ -58,38 +65,47 @@ it("creates and edits reusable workflows, retries the same run identity, and ope
       return json({ ok: true });
     }
     return String(input).endsWith("workspaces")
-      ? json([{ workspace, node_id: "node" }])
+      ? json([{ workspace }])
       : json({
+          ...empty,
           workflows: saved ? [workflow] : [],
-          routes: [],
           runs: saved ? [run] : [],
         });
   });
-  mount(<AutomationPage section="workflows" onOpenChat={open} />);
-  expect(await screen.findByText(/Save instructions as/)).toBeVisible();
+  mount("workflows", open);
+  expect(await screen.findByText("No workflows yet")).toBeVisible();
+  expect(
+    screen.getByText("Save a prompt you want to run again."),
+  ).toBeVisible();
   await user.click(screen.getByRole("button", { name: "New workflow" }));
-  await user.type(screen.getByLabelText("Name"), "Review");
-  await user.type(screen.getByLabelText("Instructions"), "Review this project");
+  await user.type(screen.getByLabelText("Name"), " Review ");
+  await user.type(screen.getByLabelText("Prompt"), " Review this project ");
   await user.click(screen.getByRole("button", { name: "Save" }));
   expect(
     await screen.findByRole("button", { name: "Edit Review" }),
   ).toBeVisible();
+  expect(bodies[0]).toMatchObject({
+    type: "save_workflow",
+    workflow: { name: "Review", instructions: "Review this project" },
+  });
   await user.click(screen.getByRole("button", { name: "Edit Review" }));
-  expect(screen.getByLabelText("Instructions")).toHaveValue(
-    workflow.instructions,
-  );
+  expect(screen.getByLabelText("Prompt")).toHaveValue(workflow.instructions);
   await user.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  await user.click(screen.getByRole("button", { name: "Run" }));
-  expect(await screen.findAllByText("Connection lost")).not.toHaveLength(0);
-  await user.click(screen.getByRole("button", { name: "Run" }));
-  expect(await screen.findByText(/Review queued/)).toBeVisible();
-  const runs = bodies.filter((b) => b.type === "run");
+  await user.click(screen.getByRole("button", { name: "Run Review" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Connection lost");
+  await user.click(screen.getByRole("button", { name: "Run Review" }));
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  const runs = bodies.filter((body) => body.type === "run");
+  expect(runs).toHaveLength(2);
   expect(runs[0]).toEqual(runs[1]);
-  await user.click(screen.getByRole("button", { name: "Open chat" }));
+  expect(screen.queryByText(/queued\. Open/)).toBeNull();
+  await user.click(
+    screen.getByRole("button", { name: "Open Review conversation" }),
+  );
   expect(open).toHaveBeenCalledWith(run.thread_id);
 });
-it("creates schedules, edits their timing, pauses and resumes them", async () => {
+it("creates a routine directly from a prompt without any workflow, runs it, and pauses and resumes it", async () => {
   const user = userEvent.setup();
   let saved = false,
     enabled = true;
@@ -98,87 +114,120 @@ it("creates schedules, edits their timing, pauses and resumes them", async () =>
     if (init?.method === "POST") {
       const body = JSON.parse(String(init.body));
       bodies.push(body);
-      enabled = body.route.enabled;
+      if (body.routine) enabled = body.routine.enabled;
       saved = true;
       return json({ ok: true });
     }
     return String(input).endsWith("workspaces")
-      ? json([{ workspace, node_id: "node" }])
+      ? json([{ workspace }])
       : json({
-          workflows: [workflow],
-          routes: saved ? [{ ...route, enabled }] : [],
-          runs: [{ ...run, state: "pending", error: "Waiting for agent" }],
+          ...empty,
+          routines: saved ? [{ ...routine, enabled }] : [],
+          runs: [
+            {
+              ...run,
+              workflow_id: null,
+              routine_id: routine.id,
+              state: "pending",
+              error: "Waiting for an available agent",
+            },
+          ],
         });
   });
-  mount(<AutomationPage section="routes" onOpenChat={vi.fn()} />);
-  expect(await screen.findByText(/Schedule a workflow/)).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "New route" }));
+  mount("routines");
+  expect(
+    await screen.findByText("Give an agent a prompt and choose when it runs."),
+  ).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "New routine" }));
+  expect(screen.queryByLabelText("Workflow")).toBeNull();
   await user.type(screen.getByLabelText("Name"), "Morning");
+  await user.type(screen.getByLabelText("Prompt"), "Summarize the news");
   await user.selectOptions(screen.getByLabelText("Repeat"), "60");
   await user.click(screen.getByRole("button", { name: "Save" }));
-  expect(await screen.findByRole("button", { name: "Pause" })).toBeVisible();
+  expect(
+    await screen.findByRole("button", { name: "Pause Morning" }),
+  ).toBeVisible();
+  expect(bodies[0]).toMatchObject({
+    type: "save_routine",
+    routine: {
+      name: "Morning",
+      instructions: "Summarize the news",
+      workspace_id: workspace.workspace_id,
+      interval_minutes: 60,
+    },
+  });
+  expect(
+    (bodies[0].routine as Record<string, unknown>).next_run_ms,
+  ).toBeUndefined();
   await user.click(screen.getByRole("button", { name: "Edit Morning" }));
+  expect(screen.getByLabelText("Prompt")).toHaveValue(routine.instructions);
   await user.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  await user.click(screen.getByRole("button", { name: "Pause" }));
-  expect(await screen.findByText("Paused")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Resume" }));
-  expect(await screen.findByRole("button", { name: "Pause" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Open chat" })).toBeDisabled();
-  expect(screen.getByText("Waiting for agent")).toBeVisible();
-  expect(bodies[0]).toMatchObject({
-    type: "save_route",
-    route: { interval_minutes: 60 },
-  });
-});
-it("handles empty catalogs, missing workspaces, failed saves and dialog dismissal", async () => {
-  const user = userEvent.setup();
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) =>
-    init?.method === "POST"
-      ? json({ error: "Stale revision" }, 409)
-      : String(input).endsWith("workspaces")
-        ? json([])
-        : json({
-            workflows: [{ ...workflow, workspace_id: crypto.randomUUID() }],
-            routes: [],
-            runs: [
-              { ...run, workflow_id: crypto.randomUUID(), route_id: null },
-            ],
-          }),
+  await user.click(screen.getByRole("button", { name: "Run Morning" }));
+  await waitFor(() =>
+    expect(bodies.some((body) => body.type === "run_routine")).toBe(true),
   );
-  mount(<AutomationPage section="workflows" onOpenChat={vi.fn()} />);
-  expect(await screen.findByText("Workspace unavailable")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "New workflow" }));
-  await user.keyboard("{Escape}");
-  expect(screen.queryByRole("dialog")).toBeNull();
-  await user.click(screen.getByRole("button", { name: "Edit Review" }));
-  // A saved workspace can disappear. The browser requires selecting an available one before saving.
-  expect(screen.getByLabelText("Agent workspace")).toHaveProperty("value", "");
-  await user.keyboard("{Escape}");
-  await user.click(screen.getByRole("button", { name: "Run" }));
-  expect(await screen.findAllByText("Stale revision")).not.toHaveLength(0);
+  await user.click(screen.getByRole("button", { name: "Pause Morning" }));
+  expect(await screen.findByText("Paused")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Resume Morning" }));
+  expect(await screen.findByText("Active")).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Open Morning conversation" }),
+  ).toBeDisabled();
+  expect(screen.getByText("Queued")).toBeVisible();
+  expect(screen.getByText("Waiting for an available agent")).toBeVisible();
 });
-it("exposes the primary navigation rail and an empty Plugins section", async () => {
+it("shows an explicit update requirement for old servers without blocking legacy workflows", async () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+    String(input).endsWith("workspaces")
+      ? json([{ workspace }])
+      : json({
+          workflows: [workflow],
+          routes: [],
+          runs: [{ ...run, routine_id: undefined }],
+        }),
+  );
+  const view = mount("routines");
+  expect(await screen.findByText("Update required")).toBeVisible();
+  expect(screen.getByRole("button", { name: "New routine" })).toBeDisabled();
+  view.unmount();
+  mount("workflows");
+  expect(
+    await screen.findByRole("button", { name: "Run Review" }),
+  ).toBeEnabled();
+});
+it("handles missing workspaces and permits inspecting an existing definition", async () => {
   const user = userEvent.setup();
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
-    String(input).endsWith("automations")
-      ? json({ workflows: [], routes: [], runs: [] })
-      : json([]),
+    String(input).endsWith("workspaces")
+      ? json([])
+      : json({
+          ...empty,
+          workflows: [workflow],
+          runs: [{ ...run, workflow_id: "missing" }],
+        }),
   );
-  mount(
-    <ChatPage config={config} active onLogout={vi.fn()} onSettings={vi.fn()} />,
-  );
-  await user.click(screen.getByRole("button", { name: "Routes" }));
-  expect(await screen.findByText(/Create a workflow first/)).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Plugins" }));
-  expect(screen.getByText("No plugins installed.")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Chats" }));
-  expect(screen.getByRole("button", { name: "Chats" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
+  mount("workflows");
+  expect(await screen.findByText("Workspace unavailable")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Run Review" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "New workflow" })).toBeDisabled();
+  expect(screen.getByText("Workflow")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Edit Review" }));
+  expect(screen.getByLabelText("Agent workspace")).toHaveProperty("value", "");
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog")).toBeNull();
 });
-
+it("explains missing workspace setup in an empty state", async () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+    String(input).endsWith("workspaces") ? json([]) : json(empty),
+  );
+  mount("routines");
+  expect(
+    await screen.findByText(
+      "Add an agent workspace in Settings to get started.",
+    ),
+  ).toBeVisible();
+});
 it.each(["automations", "workspaces"])(
   "reports %s read failures",
   async (failed) => {
@@ -187,15 +236,15 @@ it.each(["automations", "workspaces"])(
         ? json({ error: "Read unavailable" }, 503)
         : String(input).endsWith("workspaces")
           ? json([])
-          : json({ workflows: [], routes: [], runs: [] }),
+          : json(empty),
     );
-    mount(<AutomationPage section="workflows" onOpenChat={vi.fn()} />);
+    mount("workflows");
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Read unavailable",
     );
   },
 );
-it("keeps the editor open during saving and exposes a failed save for retry", async () => {
+it("keeps a pending save open and exposes its failure for retry", async () => {
   const user = userEvent.setup();
   let resolve!: (value: Response) => void;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -205,9 +254,9 @@ it("keeps the editor open during saving and exposes a failed save for retry", as
       });
     return String(input).endsWith("workspaces")
       ? json([{ workspace }])
-      : json({ workflows: [workflow], routes: [], runs: [] });
+      : json({ ...empty, workflows: [workflow] });
   });
-  mount(<AutomationPage section="workflows" onOpenChat={vi.fn()} />);
+  mount("workflows");
   await user.click(await screen.findByRole("button", { name: "Edit Review" }));
   await user.click(screen.getByRole("button", { name: "Save" }));
   expect(await screen.findByRole("button", { name: "Saving…" })).toBeDisabled();
@@ -215,39 +264,204 @@ it("keeps the editor open during saving and exposes a failed save for retry", as
   expect(screen.getByRole("dialog")).toBeVisible();
   resolve(json({ error: "Save failed" }, 503));
   expect(await screen.findByRole("alert")).toHaveTextContent("Save failed");
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
 });
-it("opens a workflow result through the primary navigation into its chat", async () => {
+it("validates whitespace-only prompts and invalid schedule values before submission", async () => {
   const user = userEvent.setup();
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
-    String(input).endsWith("automations")
-      ? json({ workflows: [workflow], routes: [], runs: [run] })
-      : json([]),
+  const post = vi.fn();
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    if (init?.method === "POST") post();
+    return String(input).endsWith("workspaces")
+      ? json([{ workspace }])
+      : json({ ...empty, routines: [routine] });
+  });
+  mount("routines");
+  await user.click(await screen.findByRole("button", { name: "Edit Morning" }));
+  await user.clear(screen.getByLabelText("Prompt"));
+  await user.type(screen.getByLabelText("Prompt"), "   ");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Enter a name");
+  await user.type(screen.getByLabelText("Prompt"), "Run task");
+  await user.clear(screen.getByLabelText("Name"));
+  await user.type(screen.getByLabelText("Name"), " ");
+  fireEvent.submit(
+    screen.getByRole("button", { name: "Save" }).closest("form")!,
   );
-  mount(
-    <ChatPage config={config} active onLogout={vi.fn()} onSettings={vi.fn()} />,
+  await user.type(screen.getByLabelText("Name"), "Morning");
+  fireEvent.change(screen.getByLabelText("First run"), {
+    target: { value: "" },
+  });
+  fireEvent.submit(
+    screen.getByRole("button", { name: "Save" }).closest("form")!,
   );
-  await user.click(screen.getByRole("button", { name: "Workflows" }));
-  await user.click(await screen.findByRole("button", { name: "Open chat" }));
-  expect(screen.getByRole("button", { name: "Chats" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
-  expect(location.hash).toBe(`#chat/${run.thread_id}`);
+  expect(post).not.toHaveBeenCalled();
 });
-
-it("preserves an API-created custom interval when opening the schedule editor", async () => {
+it("preserves custom intervals, translates execution states, and handles a failed pause", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) =>
+    init?.method === "POST"
+      ? json({ error: "Could not pause" }, 503)
+      : String(input).endsWith("workspaces")
+        ? json([{ workspace }])
+        : json({
+            ...empty,
+            routines: [{ ...routine, interval_minutes: 17 }],
+            runs: [
+              "claimed",
+              "queued",
+              "completed",
+              "failed",
+              "cancelled",
+              "unknown",
+            ].map((state, index) => ({
+              ...run,
+              id: String(index),
+              workflow_id: null,
+              routine_id: index === 0 ? null : routine.id,
+              route_id: index === 0 ? "old-route" : null,
+              state,
+            })),
+          }),
+  );
+  mount("routines");
+  expect(await screen.findByText("Every 17 minutes")).toBeVisible();
+  expect(screen.getByText("Running")).toBeVisible();
+  expect(screen.getByText("Awaiting an update")).toBeVisible();
+  expect(screen.getByText("Stopped")).toBeVisible();
+  expect(screen.getByText("Routine")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Edit Morning" }));
+  expect(screen.getByLabelText("Repeat")).toHaveValue("17");
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  await user.click(screen.getByRole("button", { name: "Pause Morning" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Could not pause");
+});
+it("retains a useful error when browser storage prevents a safe run identity", async () => {
   const user = userEvent.setup();
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
     String(input).endsWith("workspaces")
       ? json([{ workspace }])
-      : json({
-          workflows: [workflow],
-          routes: [{ ...route, interval_minutes: 15 }],
-          runs: [],
-        }),
+      : json({ ...empty, workflows: [workflow] }),
   );
-  mount(<AutomationPage section="routes" onOpenChat={vi.fn()} />);
-  expect(await screen.findByText(/Every 15 minutes/)).toBeVisible();
+  mount("workflows");
+  await screen.findByRole("button", { name: "Run Review" });
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new Error("Storage unavailable");
+  });
+  await user.click(screen.getByRole("button", { name: "Run Review" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Storage unavailable",
+  );
+});
+
+it("shows the pending resume state and locks other actions until the change finishes", async () => {
+  const user = userEvent.setup();
+  let resolve!: (value: Response) => void;
+  let enabled = false;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    if (init?.method === "POST")
+      return new Promise<Response>((done) => {
+        resolve = done;
+      });
+    return String(input).endsWith("workspaces")
+      ? json([{ workspace }])
+      : json({ ...empty, routines: [{ ...routine, enabled }] });
+  });
+  mount("routines");
+  await user.click(
+    await screen.findByRole("button", { name: "Resume Morning" }),
+  );
+  expect(
+    await screen.findByRole("button", { name: "Resuming… Morning" }),
+  ).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Edit Morning" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Run Morning" })).toBeDisabled();
+  enabled = true;
+  resolve(json({ ok: true }));
+  expect(
+    await screen.findByRole("button", { name: "Pause Morning" }),
+  ).toBeEnabled();
+});
+
+it("previews schedule changes and preserves exact first-run time when only the prompt changes", async () => {
+  const user = userEvent.setup();
+  const first = new Date(2030, 0, 2, 9, 30, 42, 123).getTime();
+  const next = first + 86400000;
+  const scheduled = { ...routine, first_run_ms: first, next_run_ms: next };
+  const bodies: unknown[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    if (init?.method === "POST") {
+      bodies.push(JSON.parse(String(init.body)));
+      return json({ ok: true });
+    }
+    return String(input).endsWith("workspaces")
+      ? json([{ workspace }])
+      : json({ ...empty, routines: [scheduled] });
+  });
+  mount("routines");
+  await user.click(await screen.findByRole("button", { name: "Edit Morning" }));
+  expect(screen.getByRole("status")).toHaveTextContent(
+    `Next run ${formatTime(next)}.`,
+  );
+  await user.type(screen.getByLabelText("Prompt"), " and summarize");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(bodies[0]).toMatchObject({
+    routine: {
+      first_run_ms: first,
+      instructions: "Review this project and summarize",
+    },
+  });
   await user.click(screen.getByRole("button", { name: "Edit Morning" }));
-  expect(screen.getByLabelText("Repeat")).toHaveValue("15");
+  fireEvent.change(screen.getByLabelText("First run"), {
+    target: { value: "2020-01-01T09:30" },
+  });
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "Due now. Runs when the router is available; missed runs are combined.",
+  );
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(bodies).toHaveLength(2));
+  expect(bodies[1]).toMatchObject({
+    routine: { first_run_ms: new Date("2020-01-01T09:30").getTime() },
+  });
+});
+
+it("explains paused, invalid, preserved and changed schedules without inventing an immediate run", () => {
+  const first = new Date(2030, 0, 2, 9, 30, 42, 123).getTime();
+  const next = first + 86400000;
+  const scheduled = { ...routine, first_run_ms: first, next_run_ms: next };
+  const unchanged = localTime(first);
+  expect(schedulePreview(scheduled, unchanged, 1440, first + 1)).toBe(
+    `Next run ${formatTime(next)}.`,
+  );
+  expect(schedulePreview(scheduled, unchanged, 60, first + 1)).toBe(
+    "Due now. Runs when the router is available; missed runs are combined.",
+  );
+  expect(
+    schedulePreview({ ...scheduled, enabled: false }, unchanged, 1440, next),
+  ).toBe("Paused. This routine will not run until resumed.");
+  expect(schedulePreview(scheduled, "", 1440, first)).toBe(
+    "Choose a valid first-run time.",
+  );
+  expect(schedulePreview(scheduled, localTime(next), 1440, first)).toBe(
+    `Next run ${formatTime(next)}.`,
+  );
+});
+
+it("keeps workflow validation focused on its name and prompt", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+    String(input).endsWith("workspaces")
+      ? json([{ workspace }])
+      : json({ ...empty, workflows: [workflow] }),
+  );
+  mount("workflows");
+  await user.click(await screen.findByRole("button", { name: "Edit Review" }));
+  expect(screen.getByLabelText("Prompt")).toHaveClass("min-h-28");
+  await user.clear(screen.getByLabelText("Prompt"));
+  await user.type(screen.getByLabelText("Prompt"), " ");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Enter a name and a prompt.",
+  );
 });

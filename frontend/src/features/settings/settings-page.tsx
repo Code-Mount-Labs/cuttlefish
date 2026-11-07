@@ -1,3 +1,4 @@
+import { ChangePasswordForm } from "../auth/change-password-form";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel, FieldGroup } from "@/components/ui/field";
 import {
@@ -458,10 +459,12 @@ export function SettingsPage({
   config,
   onBack,
   onLogout,
+  onPasswordChanged,
 }: {
   config: Config;
   onBack?: () => void;
   onLogout: () => void;
+  onPasswordChanged?: () => void;
 }) {
   return (
     <main id="settings" className="settings-page">
@@ -486,6 +489,11 @@ export function SettingsPage({
         <dt>Group</dt>
         <dd>{config.group_id}</dd>
       </dl>
+      {onPasswordChanged && (
+        <Section title="Password">
+          <ChangePasswordForm scope="local" onChanged={onPasswordChanged} />
+        </Section>
+      )}
       <Remote key={config.remote.revision} remote={config.remote} />
       {config.role !== "router" && config.features?.chat && <Workspaces />}
       {config.role !== "agent" && (

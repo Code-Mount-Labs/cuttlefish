@@ -1,7 +1,11 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { ArrowUp, Paperclip, RotateCcw } from "lucide-react";
 import { Button } from "../../components/ui/button";
-import { Textarea } from "../../components/ui/textarea";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupTextarea,
+} from "../../components/ui/input-group";
 import type { DraftFile } from "../../lib/files";
 import { DraftCard } from "./file-card";
 export function Composer({
@@ -30,6 +34,8 @@ export function Composer({
   attachments: boolean;
 }) {
   const picker = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const canSend = !disabled && (pending || !!text.trim() || files.length > 0);
   return (
     <div className="composer-dock">
       <p id="chat-status" role="status">
@@ -40,90 +46,115 @@ export function Composer({
         className="composer"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!disabled) onSend();
+          if (canSend) onSend();
         }}
         onDragOver={(e) => {
-          if (attachments && e.dataTransfer.types.includes("Files"))
+          if (
+            attachments &&
+            !locked &&
+            e.dataTransfer.types.includes("Files")
+          ) {
             e.preventDefault();
+            setDragging(true);
+          }
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+            setDragging(false);
         }}
         onDrop={(e) => {
           e.preventDefault();
+          setDragging(false);
           if (attachments && !locked) onFiles(Array.from(e.dataTransfer.files));
         }}
       >
-        <div id="draft-attachments">
-          {files.map((draft) => (
-            <DraftCard
-              key={draft.id}
-              draft={draft}
-              disabled={locked}
-              onRemove={() => onRemove(draft.id)}
-            />
-          ))}
-        </div>
-        <label className="sr-only" htmlFor="chat-message">
-          Message Cuttlefish
-        </label>
-        <Textarea
-          id="chat-message"
-          value={text}
-          onChange={(e) => onText(e.target.value)}
-          placeholder="Message Cuttlefish"
-          maxLength={4000}
-          required={!pending && !files.length}
-          readOnly={locked}
-          rows={2}
-          onPaste={(e) => {
-            if (attachments && !locked && e.clipboardData.files.length) {
-              e.preventDefault();
-              onFiles(Array.from(e.clipboardData.files));
-            }
-          }}
-          onKeyDown={(e) => {
-            if (
-              e.key === "Enter" &&
-              !e.shiftKey &&
-              !e.nativeEvent.isComposing
-            ) {
-              e.preventDefault();
-              e.currentTarget.form?.requestSubmit();
-            }
-          }}
-        />
-        <div className="composer-actions">
-          <Button
-            id="attach-files"
-            type="button"
-            variant="ghost"
-            size="icon"
-            disabled={locked || !attachments}
-            aria-label="Attach files"
-            title="Attach files (up to 8 MiB each)"
-            onClick={() => picker.current?.click()}
-          >
-            <Paperclip />
-          </Button>
-          <input
-            ref={picker}
-            id="file-picker"
-            type="file"
-            multiple
-            hidden
-            onChange={(e) => {
-              onFiles(Array.from(e.target.files ?? []));
-              e.target.value = "";
+        <InputGroup
+          data-dragging={dragging}
+          className="composer-input-group data-[dragging=true]:ring-2 data-[dragging=true]:ring-ring"
+        >
+          {dragging && (
+            <InputGroupAddon align="block-start">
+              <span role="status">Drop files to attach</span>
+            </InputGroupAddon>
+          )}
+          <div id="draft-attachments">
+            {files.map((draft) => (
+              <DraftCard
+                key={draft.id}
+                draft={draft}
+                disabled={locked}
+                onRemove={() => onRemove(draft.id)}
+              />
+            ))}
+          </div>
+          <label className="sr-only" htmlFor="chat-message">
+            Message Cuttlefish
+          </label>
+          <InputGroupTextarea
+            aria-describedby="chat-status notice"
+            className="min-h-20 max-h-56 px-4 py-3 text-base md:text-base"
+            id="chat-message"
+            value={text}
+            onChange={(e) => onText(e.target.value)}
+            placeholder="Message Cuttlefish"
+            maxLength={4000}
+            required={!pending && !files.length}
+            readOnly={locked}
+            rows={2}
+            onPaste={(e) => {
+              if (attachments && !locked && e.clipboardData.files.length) {
+                e.preventDefault();
+                onFiles(Array.from(e.clipboardData.files));
+              }
+            }}
+            onKeyDown={(e) => {
+              if (
+                e.key === "Enter" &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing
+              ) {
+                e.preventDefault();
+                e.currentTarget.form?.requestSubmit();
+              }
             }}
           />
-          <Button
-            id="chat-send"
-            type="submit"
-            size="icon"
-            disabled={disabled}
-            aria-label={pending ? "Retry same request" : "Send message"}
+          <InputGroupAddon
+            align="block-end"
+            className="composer-actions justify-between px-3 pt-1.5 pb-2.5"
           >
-            {pending ? <RotateCcw /> : <ArrowUp />}
-          </Button>
-        </div>
+            <Button
+              id="attach-files"
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={locked || !attachments}
+              aria-label="Attach files"
+              onClick={() => picker.current?.click()}
+            >
+              <Paperclip />
+            </Button>
+            <input
+              ref={picker}
+              id="file-picker"
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => {
+                onFiles(Array.from(e.target.files ?? []));
+                e.target.value = "";
+              }}
+            />
+            <Button
+              id="chat-send"
+              type="submit"
+              size="icon"
+              disabled={!canSend}
+              aria-label={pending ? "Retry same request" : "Send message"}
+            >
+              {pending ? <RotateCcw /> : <ArrowUp />}
+            </Button>
+          </InputGroupAddon>
+        </InputGroup>
       </form>
     </div>
   );

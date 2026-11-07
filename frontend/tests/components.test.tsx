@@ -187,7 +187,7 @@ describe("application workflows", () => {
       return json({});
     });
     mount(<LocalApp />);
-    await screen.findByRole("heading", { name: "New chat" });
+    await screen.findByRole("heading", { name: "What would you like to do?" });
     await user.type(
       screen.getByRole("textbox", { name: "Message Cuttlefish" }),
       "Test message",

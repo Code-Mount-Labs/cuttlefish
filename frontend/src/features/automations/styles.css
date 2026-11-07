@@ -1,0 +1,169 @@
+@layer components {
+  .automation-workspace {
+    width: 100%;
+    max-width: 1080px;
+    padding: clamp(24px, 4vw, 48px);
+  }
+  .automation-workspace .section-header {
+    margin-bottom: 32px;
+  }
+  .automation-feedback {
+    margin-bottom: 20px;
+  }
+  .automation-empty {
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+    padding: 72px 16px;
+    color: var(--muted-foreground);
+    text-align: center;
+  }
+  .automation-empty h2 {
+    color: var(--foreground);
+  }
+  .automation-empty > svg {
+    width: 24px;
+    height: 24px;
+    margin-bottom: 6px;
+  }
+  .automation-definitions > li {
+    padding: 24px 0;
+    align-items: flex-start;
+    gap: 24px;
+  }
+  .automation-item-content {
+    flex: 1;
+    min-width: 0;
+  }
+  .automation-item-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .automation-item-title h2 {
+    overflow-wrap: anywhere;
+  }
+  .automation-status {
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+  .automation-prompt {
+    margin-top: 8px;
+    max-width: 68ch;
+    font-size: 14px;
+    color: var(--muted-foreground);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .automation-metadata {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    margin-top: 12px;
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+  .automation-metadata > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .automation-metadata svg {
+    width: 13px;
+    height: 13px;
+  }
+  .automation-item-actions {
+    gap: 4px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .automation-workspace .run-history {
+    margin-top: 48px;
+  }
+  .automation-runs {
+    margin-top: 16px;
+  }
+  .automation-runs > li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 24px;
+    padding: 16px 0;
+  }
+  .automation-run-content h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .automation-run-content time,
+  .automation-run-status {
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+  .automation-run-error {
+    margin-top: 6px;
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+  .automation-run-status[data-state="failed"] {
+    color: var(--destructive);
+  }
+  .automation-editor-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .automation-fields {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+  }
+  .automation-schedule {
+    border: 0;
+    margin: 0;
+    padding: 0;
+    min-width: 0;
+  }
+  .automation-field-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 16px;
+  }
+  .automation-timezone {
+    color: var(--muted-foreground);
+    font-size: 12px;
+    margin-top: 8px;
+  }
+  @media (max-width: 760px) {
+    .automation-touch-target,
+    .automation-editor-actions button {
+      min-height: 44px;
+      min-width: 44px;
+    }
+    .automation-workspace {
+      padding: 72px 20px 24px;
+    }
+    .automation-definitions > li {
+      flex-direction: column;
+      gap: 16px;
+    }
+    .automation-item-actions {
+      justify-content: flex-start;
+    }
+    .automation-runs > li {
+      gap: 12px;
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .automation-runs > li > button {
+      grid-column: 1 / -1;
+      justify-self: start;
+    }
+    .automation-field-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}

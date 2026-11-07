@@ -11,7 +11,8 @@ import { Button } from "../components/ui/button";
 export function LocalApp() {
   const cache = useQueryClient(),
     [settings, setSettings] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [notice, setNotice] = useState("");
   const status = useQuery({
     queryKey: ["status"],
     queryFn: ({ signal }) =>
@@ -31,27 +32,37 @@ export function LocalApp() {
     await local(status.data?.initialized ? "login" : "setup", z.unknown(), {
       body,
     });
+    setNotice("");
     cache.removeQueries({ predicate: (q) => q.queryKey[0] !== "status" });
     await cache.invalidateQueries({ queryKey: ["status"] });
     await config.refetch();
   }
+  async function clearSession() {
+    savePending(null);
+    history.replaceState(null, "", location.pathname);
+    await cache.cancelQueries();
+    cache.clear();
+    await status.refetch();
+    await config.refetch();
+    setSettings(false);
+    setError("");
+  }
   async function logout() {
     try {
       await local("logout", z.unknown(), { body: {} });
-      savePending(null);
-      history.replaceState(null, "", location.pathname);
-      await cache.cancelQueries();
-      cache.clear();
-      await status.refetch();
-      await config.refetch();
-      setSettings(false);
-      setError("");
+      await clearSession();
     } catch (e) {
       setError(errorMessage(e));
     }
   }
   if (config.error instanceof ApiError && config.error.status === 401)
-    return <AuthForm setup={!status.data?.initialized} onSubmit={login} />;
+    return (
+      <AuthForm
+        setup={!status.data?.initialized}
+        onSubmit={login}
+        notice={notice}
+      />
+    );
   if (!config.data)
     return (
       <main className="auth-page">
@@ -97,6 +108,10 @@ export function LocalApp() {
           config={config.data}
           onBack={canChat ? () => setSettings(false) : undefined}
           onLogout={() => void logout()}
+          onPasswordChanged={() => {
+            setNotice("Password changed. Sign in with your new password.");
+            void clearSession();
+          }}
         />
       )}
     </>

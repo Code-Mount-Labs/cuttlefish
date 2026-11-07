@@ -18,6 +18,20 @@ impl std::fmt::Debug for Credentials {
     }
 }
 
+/// Authenticated password replacement. Secret values are never formatted.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PasswordChange {
+    /// Existing password, verified before any replacement.
+    pub current_password: String,
+    /// New password using the same policy as account creation.
+    pub new_password: String,
+}
+impl std::fmt::Debug for PasswordChange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PasswordChange([redacted])")
+    }
+}
 impl Platform {
     /// Create an account and durable expiring session atomically.
     ///
@@ -63,14 +77,17 @@ impl Platform {
         let (account, hash) = row.ok_or(Error::Unauthorized)?;
         let valid = self
             .passwords
-            .verify(credentials.password, hash, permit)
+            .verify(credentials.password, hash.clone(), permit)
             .await?;
         if !valid {
             return Err(Error::Unauthorized);
         }
         let token = random_token();
         let mut tx = self.pool.begin().await?;
-        sqlx::query("UPDATE accounts SET failed_logins=0,login_window=clock_timestamp() WHERE account_id=$1").bind(account).execute(&mut *tx).await?;
+        let matched = sqlx::query("UPDATE accounts SET failed_logins=0,login_window=clock_timestamp() WHERE account_id=$1 AND password_hash=$2").bind(account).bind(hash).execute(&mut *tx).await?.rows_affected();
+        if matched != 1 {
+            return Err(Error::Unauthorized);
+        }
         sqlx::query("DELETE FROM sessions WHERE account_id=$1 AND expires_at<=clock_timestamp()")
             .bind(account)
             .execute(&mut *tx)
@@ -80,6 +97,49 @@ impl Platform {
         Ok(token)
     }
 
+    /// Change a password and revoke every session for the account atomically.
+    /// # Errors
+    /// Rejects invalid credentials, expired sessions, concurrent changes and storage failures.
+    pub async fn change_password(
+        &self,
+        token: &NodeToken,
+        input: PasswordChange,
+    ) -> Result<(), Error> {
+        validate_password(&input.current_password)?;
+        validate_password(&input.new_password)?;
+        let permit = self
+            .password_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Error::Limited)?;
+        let row: Option<(Uuid,String,String)> = sqlx::query_as("UPDATE accounts SET failed_logins=CASE WHEN login_window<clock_timestamp()-interval '1 minute' THEN 1 ELSE failed_logins+1 END,login_window=CASE WHEN login_window<clock_timestamp()-interval '1 minute' THEN clock_timestamp() ELSE login_window END WHERE account_id=(SELECT account_id FROM sessions WHERE token_hash=$1 AND expires_at>clock_timestamp()) AND (failed_logins<5 OR login_window<clock_timestamp()-interval '1 minute') RETURNING account_id,username,password_hash")
+            .bind(digest(token.expose())).fetch_optional(&self.pool).await?;
+        let (account, username, previous) = row.ok_or(Error::Unauthorized)?;
+        let (_, replacement) = self
+            .passwords
+            .replace(
+                Credentials {
+                    username,
+                    password: input.new_password,
+                },
+                input.current_password,
+                previous.clone(),
+                permit,
+            )
+            .await?;
+        let mut tx = self.pool.begin().await?;
+        let matched = sqlx::query("UPDATE accounts SET password_hash=$1,failed_logins=0,login_window=clock_timestamp() WHERE account_id=$2 AND password_hash=$3 AND EXISTS(SELECT 1 FROM sessions WHERE token_hash=$4 AND account_id=$2 AND expires_at>clock_timestamp())")
+            .bind(replacement).bind(account).bind(previous).bind(digest(token.expose())).execute(&mut *tx).await?.rows_affected();
+        if matched != 1 {
+            return Err(Error::Unauthorized);
+        }
+        sqlx::query("DELETE FROM sessions WHERE account_id=$1")
+            .bind(account)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
     /// Resolve a session to its account. Node/installation tokens cannot sign in.
     ///
     /// # Errors
@@ -128,7 +188,10 @@ fn validate(credentials: &Credentials) -> Result<(), Error> {
             "username must contain 3–64 lowercase letters, digits, dots, underscores or hyphens",
         ));
     }
-    if !(12..=1024).contains(&credentials.password.len()) {
+    validate_password(&credentials.password)
+}
+fn validate_password(password: &str) -> Result<(), Error> {
+    if !(12..=1024).contains(&password.len()) {
         return Err(Error::Invalid("password must contain 12–1024 bytes"));
     }
     Ok(())

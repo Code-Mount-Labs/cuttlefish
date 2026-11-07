@@ -60,6 +60,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/session", get(session))
         .route("/api/v1/auth/logout", post(logout))
+        .route("/api/v1/auth/password", post(change_password))
         .route("/api/v1/groups", get(groups).post(create_group))
         .route("/api/v1/groups/{group}/installations", get(installations))
         .route("/api/v1/groups/{group}/invitations", post(invite))
@@ -175,6 +176,18 @@ async fn session(
     Ok(Json(
         json!({"account_id":platform.account(&token(&headers)?).await?}),
     ))
+}
+async fn change_password(
+    State(platform): State<Platform>,
+    headers: HeaderMap,
+    Json(input): Json<crate::accounts::PasswordChange>,
+) -> Result<Response, Error> {
+    platform
+        .change_password(&mutation_token(&platform, &headers)?, input)
+        .await?;
+    let mut response = signed_in(&platform, "", 0);
+    *response.body_mut() = axum::body::Body::from(r#"{"ok":true}"#);
+    Ok(response)
 }
 async fn logout(State(platform): State<Platform>, headers: HeaderMap) -> Result<Response, Error> {
     platform

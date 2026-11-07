@@ -41,6 +41,39 @@ The main Cuttlefish process runs in the foreground; automatic startup for that
 process is not yet implemented. The managed relay connector has its own native
 OS service and survives supervisor restart.
 
+## Passwords
+
+The hosted website account and each installation's administrator account are
+independent. On an installation dashboard, open **Settings → Password**. On the
+hosted website, open **Account → Password**. Enter the current password, a new
+password, and its confirmation. Passwords must contain 12–1024 UTF-8 bytes; the
+same policy applies to initial setup and sign-in.
+
+A successful change signs that account out on all devices, including the current
+browser. Sign in again with the new password. Changing one account does not
+change another installation's password, provider sign-ins, database credentials,
+or model keys. It does not cancel running agent tasks.
+
+The server verifies the current password and stores a fresh Argon2 hash.
+Replacement and session revocation commit atomically; failed writes preserve the
+previous password and sessions. Concurrent changes using the old password cannot
+both succeed, and a sign-in that started with the old password cannot create a
+surviving session after the change. The replacement and revocations survive a
+restart. This is a signed-in password change, not a forgotten-password reset.
+
+Both endpoints accept JSON `current_password` and `new_password`, return
+`{"ok":true}`, and expire the session cookie:
+
+| Account | Endpoint |
+| --- | --- |
+| Installation administrator | `POST /api/local/password` |
+| Hosted website | `POST /api/v1/auth/password` |
+
+Browser requests require the authenticated session and matching Origin. Use the
+installation endpoint through its own dashboard or managed relay prefix; the
+hosted endpoint belongs to the website. Never send an installation password to
+the hosted account endpoint.
+
 ## Database choices
 
 - **Create PostgreSQL here:** save a stable provisioning plan, install/start Docker
@@ -100,6 +133,7 @@ login reservations survive restart. JSON inputs have a 16 KiB limit.
 | POST | `/api/local/setup` | One-time code, username, password |
 | POST | `/api/local/login` | Local administrator login |
 | POST | `/api/local/logout` | Revoke the current session |
+| POST | `/api/local/password` | Verify current password, replace it, and revoke all local sessions |
 | GET | `/api/local/config` | Identity, safe database status, model name/endpoint |
 | POST | `/api/local/database` | Queue `managed`, `existing`, or `later` selection; 202 |
 | POST | `/api/local/database/retry` | Queue the exact saved failed plan; 202 |
@@ -119,6 +153,7 @@ or missing instructions fail closed rather than silently reverting to defaults.
 ## Validation
 
 Tests cover deferred setup, persisted administrator sessions and rate limits,
+password changes, atomic session revocation, concurrent sign-in/change races,
 interrupted provisioning, immutable resource identity, ownership conflicts,
 Docker reuse/installation boundaries, bounded subprocess output, group enrollment,
 revocation, separate registry/execution schemas, and whole-service restart.

@@ -120,12 +120,19 @@ async fn interruption_after_saving_a_managed_plan_reuses_exact_credentials_and_v
         .expect("open");
     initialize(&machine).await;
     let working = machine.clone();
-    let job = tokio::spawn(async move {
-        working
-            .configure(DatabaseChoice::Managed { port: 54329 })
-            .await
-    });
-    backend.entered.notified().await;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("available port");
+    let port = listener.local_addr().expect("address").port();
+    drop(listener);
+    let mut job =
+        tokio::spawn(async move { working.configure(DatabaseChoice::Managed { port }).await });
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::select! {
+            () = backend.entered.notified() => {}
+            result = &mut job => panic!("configuration exited before provisioning: {result:?}"),
+        }
+    })
+    .await
+    .expect("provisioning began");
     assert_eq!(
         machine.status().await.expect("saved before work").state,
         "provisioning"

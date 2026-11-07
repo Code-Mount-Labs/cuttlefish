@@ -43,6 +43,38 @@ pub struct ScheduledRoute {
     /// Elapsed minutes between occurrences, independent of daylight-saving changes.
     pub interval_minutes: i64,
 }
+/// A scheduled task whose prompt is independent of reusable workflows.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Routine {
+    /// Stable identity, generated before the first save.
+    pub id: Uuid,
+    /// Expected revision, zero when creating.
+    pub revision: i64,
+    /// Human-readable name.
+    pub name: String,
+    /// Registered provider workspace.
+    pub workspace_id: Uuid,
+    /// Instructions copied into each run before dispatch.
+    pub instructions: String,
+    /// Enables future scheduled occurrences; manual runs remain available.
+    pub enabled: bool,
+    /// First occurrence as UTC epoch milliseconds.
+    pub first_run_ms: i64,
+    /// Elapsed minutes between occurrences, independent of daylight-saving changes.
+    pub interval_minutes: i64,
+}
+
+#[derive(Clone, Copy)]
+enum RunSource {
+    Workflow(Uuid),
+    Routine(Uuid),
+}
+#[derive(Deserialize)]
+struct TaskDefinition {
+    workspace_id: Uuid,
+    instructions: String,
+}
 fn valid_name(id: Uuid, revision: i64, name: &str) -> Result<(), Error> {
     if id.is_nil() || revision < 0 || name.trim().is_empty() || name.len() > 128 {
         return Err(Error::RoutingConflict("invalid name, identity or revision"));
@@ -58,8 +90,9 @@ impl Store {
         let group = Uuid::from(group);
         let workflows: Vec<Json<Value>> = sqlx::query_scalar("SELECT definition || jsonb_build_object('revision',revision) FROM workflows WHERE group_id=$1 ORDER BY definition->>'name'").bind(group).fetch_all(&self.pool).await?;
         let routes: Vec<Json<Value>> = sqlx::query_scalar("SELECT definition || jsonb_build_object('revision',revision,'next_run_ms',next_run_ms) FROM scheduled_routes WHERE group_id=$1 ORDER BY definition->>'name'").bind(group).fetch_all(&self.pool).await?;
-        let runs: Vec<Json<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',r.id,'workflow_id',r.workflow_id,'route_id',r.route_id,'thread_id',r.request->'thread_id','created_ms',r.created_ms,'state',COALESCE(d.state,'pending'),'error',r.error) FROM workflow_runs r LEFT JOIN dispatches d ON d.group_id=r.group_id AND d.command_id=r.id WHERE r.group_id=$1 ORDER BY r.created_ms DESC LIMIT 100").bind(group).fetch_all(&self.pool).await?;
-        Ok(json!({"workflows":workflows,"routes":routes,"runs":runs}))
+        let routines: Vec<Json<Value>> = sqlx::query_scalar("SELECT definition || jsonb_build_object('revision',revision,'next_run_ms',next_run_ms) FROM routines WHERE group_id=$1 ORDER BY definition->>'name'").bind(group).fetch_all(&self.pool).await?;
+        let runs: Vec<Json<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',r.id,'workflow_id',r.workflow_id,'routine_id',r.routine_id,'route_id',r.route_id,'thread_id',r.request->'thread_id','created_ms',r.created_ms,'state',COALESCE(d.state,'pending'),'error',r.error) FROM workflow_runs r LEFT JOIN dispatches d ON d.group_id=r.group_id AND d.command_id=r.id WHERE r.group_id=$1 ORDER BY r.created_ms DESC LIMIT 100").bind(group).fetch_all(&self.pool).await?;
+        Ok(json!({"workflows":workflows,"routes":routes,"routines":routines,"runs":runs}))
     }
     /// Save a versioned workflow without losing concurrent edits.
     /// # Errors
@@ -102,7 +135,7 @@ impl Store {
         let (group, _) = authenticate(&mut tx, token).await?;
         let interval = route.interval_minutes * 60_000;
         let count = if route.revision == 0 {
-            sqlx::query("INSERT INTO scheduled_routes(group_id,id,workflow_id,revision,definition,enabled,next_run_ms,interval_ms) SELECT $1,$2,$3,1,$4,$5,$6,$7 WHERE EXISTS(SELECT 1 FROM workflows WHERE group_id=$1 AND id=$3) ON CONFLICT DO NOTHING")
+            sqlx::query("INSERT INTO scheduled_routes(group_id,id,workflow_id,revision,definition,enabled,next_run_ms,interval_ms) SELECT $1,$2,$3,1,$4,$5,$6,$7 WHERE EXISTS(SELECT 1 FROM workflows WHERE group_id=$1 AND id=$3) AND NOT EXISTS(SELECT 1 FROM routines WHERE group_id=$1 AND id=$2) ON CONFLICT DO NOTHING")
                 .bind(group).bind(route.id).bind(route.workflow_id).bind(Json(&route)).bind(route.enabled).bind(route.first_run_ms).bind(interval).execute(&mut *tx).await?.rows_affected()
         } else {
             sqlx::query("UPDATE scheduled_routes SET workflow_id=$3,revision=revision+1,definition=$4,enabled=$5,next_run_ms=CASE WHEN (definition->>'first_run_ms')::bigint=$6 AND interval_ms=$7 THEN next_run_ms ELSE $6 END,interval_ms=$7 WHERE group_id=$1 AND id=$2 AND revision=$8 AND EXISTS(SELECT 1 FROM workflows WHERE group_id=$1 AND id=$3)")
@@ -111,6 +144,57 @@ impl Store {
         if count != 1 {
             return Err(Error::Conflict);
         }
+        tx.commit().await?;
+        Ok(())
+    }
+    /// Save a routine directly, without creating or depending on a workflow.
+    /// # Errors
+    /// Rejects invalid prompts, unavailable workspaces, schedules and stale revisions.
+    pub async fn save_routine(&self, token: &NodeToken, routine: Routine) -> Result<(), Error> {
+        valid_name(routine.id, routine.revision, &routine.name)?;
+        MessageText::try_from(routine.instructions.clone()).map_err(|_| {
+            Error::RoutingConflict("instructions must contain 1 to 4000 characters")
+        })?;
+        if !(1..=525_600).contains(&routine.interval_minutes)
+            || !(0..=253_402_300_799_000).contains(&routine.first_run_ms)
+        {
+            return Err(Error::RoutingConflict("invalid schedule"));
+        }
+        let mut tx = self.pool.begin().await?;
+        let (group, _) = authenticate(&mut tx, token).await?;
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM provider_workspaces WHERE group_id=$1 AND workspace_id=$2)").bind(group).bind(routine.workspace_id).fetch_one(&mut *tx).await?;
+        if !exists {
+            return Err(Error::RoutingConflict("select a registered workspace"));
+        }
+        let interval = routine.interval_minutes * 60_000;
+        let count = if routine.revision == 0 {
+            sqlx::query("INSERT INTO routines(group_id,id,revision,definition,enabled,next_run_ms,interval_ms) VALUES($1,$2,1,$3,$4,$5,$6) ON CONFLICT DO NOTHING")
+                .bind(group).bind(routine.id).bind(Json(&routine)).bind(routine.enabled).bind(routine.first_run_ms).bind(interval).execute(&mut *tx).await?.rows_affected()
+        } else {
+            sqlx::query("UPDATE routines SET revision=revision+1,definition=$3,enabled=$4,next_run_ms=CASE WHEN (definition->>'first_run_ms')::bigint=$5 AND interval_ms=$6 THEN next_run_ms ELSE $5 END,interval_ms=$6 WHERE group_id=$1 AND id=$2 AND revision=$7")
+                .bind(group).bind(routine.id).bind(Json(&routine)).bind(routine.enabled).bind(routine.first_run_ms).bind(interval).bind(routine.revision).execute(&mut *tx).await?.rows_affected()
+        };
+        if count != 1 {
+            return Err(Error::Conflict);
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+    /// Queue one manual routine run, including when its schedule is paused.
+    /// # Errors
+    /// Rejects unknown routines and conflicting or invalid run identities.
+    pub async fn run_routine(
+        &self,
+        token: &NodeToken,
+        routine: Uuid,
+        run: Uuid,
+    ) -> Result<(), Error> {
+        if run.is_nil() {
+            return Err(Error::RoutingConflict("invalid run identity"));
+        }
+        let mut tx = self.pool.begin().await?;
+        let (group, _) = authenticate(&mut tx, token).await?;
+        enqueue(&mut tx, group, RunSource::Routine(routine), run, None).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -128,7 +212,7 @@ impl Store {
         }
         let mut tx = self.pool.begin().await?;
         let (group, _) = authenticate(&mut tx, token).await?;
-        enqueue(&mut tx, group, workflow, run, None).await?;
+        enqueue(&mut tx, group, RunSource::Workflow(workflow), run, None).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -142,7 +226,14 @@ impl Store {
         for (route, workflow, next, interval, now) in rows {
             let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_runs r LEFT JOIN dispatches d ON d.group_id=r.group_id AND d.command_id=r.id WHERE r.group_id=$1 AND r.route_id=$2 AND (NOT r.accepted OR d.state IS DISTINCT FROM 'completed'))").bind(group).bind(route).fetch_one(&mut *tx).await?;
             if !active {
-                enqueue(&mut tx, group, workflow, Uuid::new_v4(), Some(route)).await?;
+                enqueue(
+                    &mut tx,
+                    group,
+                    RunSource::Workflow(workflow),
+                    Uuid::new_v4(),
+                    Some(route),
+                )
+                .await?;
             }
             let next = next + ((now - next) / interval + 1) * interval;
             sqlx::query("UPDATE scheduled_routes SET next_run_ms=$3 WHERE group_id=$1 AND id=$2")
@@ -152,6 +243,7 @@ impl Store {
                 .execute(&mut *tx)
                 .await?;
         }
+        schedule_routines(&mut tx, group).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -191,32 +283,57 @@ impl Store {
         Ok(())
     }
 }
+async fn schedule_routines(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    group: Uuid,
+) -> Result<(), Error> {
+    let rows: Vec<(Uuid,i64,i64,i64)> = sqlx::query_as("SELECT id,next_run_ms,interval_ms,(extract(epoch FROM statement_timestamp())*1000)::bigint FROM routines WHERE group_id=$1 AND enabled AND next_run_ms<=(extract(epoch FROM statement_timestamp())*1000)::bigint ORDER BY next_run_ms LIMIT 20 FOR UPDATE SKIP LOCKED").bind(group).fetch_all(&mut **tx).await?;
+    for (routine, next, interval, now) in rows {
+        let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_runs r LEFT JOIN dispatches d ON d.group_id=r.group_id AND d.command_id=r.id WHERE r.group_id=$1 AND r.routine_id=$2 AND (NOT r.accepted OR d.state IS DISTINCT FROM 'completed'))").bind(group).bind(routine).fetch_one(&mut **tx).await?;
+        if !active {
+            enqueue(tx, group, RunSource::Routine(routine), Uuid::new_v4(), None).await?;
+        }
+        let next = next + ((now - next) / interval + 1) * interval;
+        sqlx::query("UPDATE routines SET next_run_ms=$3 WHERE group_id=$1 AND id=$2")
+            .bind(group)
+            .bind(routine)
+            .bind(next)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
 async fn enqueue(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     group: Uuid,
-    workflow: Uuid,
+    source: RunSource,
     run: Uuid,
     route: Option<Uuid>,
 ) -> Result<(), Error> {
-    let existing: Option<Uuid> =
-        sqlx::query_scalar("SELECT workflow_id FROM workflow_runs WHERE group_id=$1 AND id=$2")
-            .bind(group)
-            .bind(run)
-            .fetch_optional(&mut **tx)
-            .await?;
+    let (workflow, routine) = match source {
+        RunSource::Workflow(id) => (Some(id), None),
+        RunSource::Routine(id) => (None, Some(id)),
+    };
+    let existing: Option<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+        "SELECT workflow_id,routine_id FROM workflow_runs WHERE group_id=$1 AND id=$2",
+    )
+    .bind(group)
+    .bind(run)
+    .fetch_optional(&mut **tx)
+    .await?;
     if let Some(existing) = existing {
-        return if existing == workflow {
+        return if existing == (workflow, routine) {
             Ok(())
         } else {
             Err(Error::Conflict)
         };
     }
-    let row: Option<(Json<Workflow>, Json<Value>)> = sqlx::query_as("SELECT w.definition,p.workspace FROM workflows w JOIN provider_workspaces p ON p.group_id=w.group_id AND p.workspace_id=(w.definition->>'workspace_id')::uuid WHERE w.group_id=$1 AND w.id=$2").bind(group).bind(workflow).fetch_optional(&mut **tx).await?;
-    let (definition, workspace) = row.ok_or(Error::RoutingConflict("workflow unavailable"))?;
+    let row: Option<(Json<TaskDefinition>,Json<Value>)> = sqlx::query_as("SELECT d.definition,p.workspace FROM (SELECT definition FROM workflows WHERE group_id=$1 AND id=$2 UNION ALL SELECT definition FROM routines WHERE group_id=$1 AND id=$3) d JOIN provider_workspaces p ON p.group_id=$1 AND p.workspace_id=(d.definition->>'workspace_id')::uuid").bind(group).bind(workflow).bind(routine).fetch_optional(&mut **tx).await?;
+    let (definition, workspace) = row.ok_or(Error::RoutingConflict("task unavailable"))?;
     let request = json!({"command_id":run,"thread_id":run,"action":{"type":"start","task_id":run,"session_id":run,"workspace_id":definition.workspace_id,"capabilities":[workspace["provider"]],"message":{"id":run,"text":definition.instructions,"attachments":[]}}});
     let request: RouteRequest = serde_json::from_value(request)
-        .map_err(|_| Error::RoutingConflict("invalid workflow request"))?;
-    let saved: Option<Uuid> = sqlx::query_scalar("INSERT INTO workflow_runs(group_id,id,workflow_id,route_id,request,created_ms) VALUES($1,$2,$3,$4,$5,(extract(epoch FROM clock_timestamp())*1000)::bigint) ON CONFLICT(group_id,id) DO UPDATE SET id=workflow_runs.id WHERE workflow_runs.workflow_id=excluded.workflow_id RETURNING id").bind(group).bind(run).bind(workflow).bind(route).bind(Json(request)).fetch_optional(&mut **tx).await?;
+        .map_err(|_| Error::RoutingConflict("invalid task request"))?;
+    let saved: Option<Uuid> = sqlx::query_scalar("INSERT INTO workflow_runs(group_id,id,workflow_id,routine_id,route_id,request,created_ms) VALUES($1,$2,$3,$4,$5,$6,(extract(epoch FROM clock_timestamp())*1000)::bigint) ON CONFLICT(group_id,id) DO UPDATE SET id=workflow_runs.id WHERE workflow_runs.workflow_id IS NOT DISTINCT FROM excluded.workflow_id AND workflow_runs.routine_id IS NOT DISTINCT FROM excluded.routine_id RETURNING id").bind(group).bind(run).bind(workflow).bind(routine).bind(route).bind(Json(request)).fetch_optional(&mut **tx).await?;
     if saved.is_none() {
         return Err(Error::Conflict);
     }

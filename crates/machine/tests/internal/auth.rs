@@ -10,5 +10,8 @@ async fn closing_storage_between_password_verification_and_session_creation_is_s
     .await
     .expect("machine");
     machine.close().await;
-    assert!(machine.issue_login_session().await.is_err());
+    assert!(machine.issue_login_session("stale-hash").await.is_err());
 }
+
+#[path = "password_change.rs"]
+mod password_change;

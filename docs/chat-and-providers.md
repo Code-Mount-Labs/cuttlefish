@@ -1,6 +1,7 @@
 # Chat, files, and local providers
 
-The `v0.2.0-alpha.4` release includes the chat surface and real local provider adapters. The release gate remains 100%
+The current source includes the chat surface and real local provider adapters.
+The release gate remains 100%
 line, function, and region coverage; passing a live demo does not bypass that gate.
 
 ## Setup
@@ -30,12 +31,27 @@ component state owns drafts. See [frontend development](../frontend/README.md).
 The frontend has its own 100% statement, branch, function, and line coverage gate,
 in addition to the unchanged Rust gate. Browser checks use the production CSP.
 
+The installation sidebar keeps **Chats**, **Routines**, **Workflows**, and
+**Plugins** in a consistent location. The recent-chat list remains available while
+switching sections. On narrow screens, open the navigation menu. Routines own a
+prompt, workspace, and schedule; workflows are saved prompts for manual reruns.
+See [routines and workflows](routines-and-workflows.md).
+
 The desktop and mobile chat surface includes recent conversations, search, new
 chats, a workspace/provider picker, formatted replies, copy controls, file input,
 file drag-and-drop and paste, image previews, and downloadable result cards.
 Enter sends; Shift+Enter inserts a newline. A pending send retains its exact
 request identity through a page reload, so retrying cannot create a second task.
 Signing out clears the current browser's pending request and visible chat data.
+When reading earlier messages, incoming updates do not pull you away; **Jump to
+latest** returns to the bottom. **End session** is in the conversation options
+menu after the current task finishes. Ending a session releases its worker;
+start a new chat to continue working.
+
+Open **Settings → Password** to change the installation administrator password.
+The hosted website has a separate **Account → Password** page. A successful
+change clears the browser's authenticated state and asks you to sign in again;
+all sessions for that account are revoked. See [password management](local-installation.md#passwords).
 
 Messages and durable activity refresh by polling. The activity timeline reports
 preparing, connecting, provider handoff, observed tool use, waiting, and saving
@@ -134,4 +150,4 @@ It checks upload bytes, exact retry identity across a reload, safe Markdown,
 responsive layout, and sign-out cleanup. Real provider and relay checks remain
 separate because they use subscription access and remote services.
 
-Workflow runs are single-use sessions. After a run finishes, a durable close command releases its worker capacity while retaining the conversation and artifacts. Run the workflow again to start a fresh session. Close-command delivery survives router restarts and never invokes the LLM.
+Routine and workflow runs are single-use sessions. After a run finishes, a durable close command releases its worker capacity while retaining the conversation and artifacts. Run the routine or workflow again to start a fresh session. Close-command delivery survives router restarts and never invokes the LLM.

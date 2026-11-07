@@ -1,4 +1,4 @@
-import { Check, LoaderCircle, TriangleAlert } from "lucide-react";
+import { Check, ChevronDown, LoaderCircle, TriangleAlert } from "lucide-react";
 import type { ActivityEvent, Turn } from "../../lib/contracts";
 import { activityLabel, activityState } from "../../lib/activity";
 export function TaskActivity({
@@ -11,6 +11,11 @@ export function TaskActivity({
   lastSeen: number | null;
 }) {
   const state = activityState(turn, events, lastSeen);
+  const steps = events.filter(
+    (event, index) =>
+      event.phase !== events[index - 1]?.phase ||
+      event.provider !== events[index - 1]?.provider,
+  );
   return (
     <section
       className={`task-activity ${state.tone}`}
@@ -27,14 +32,11 @@ export function TaskActivity({
             <TriangleAlert size={15} />
           )}
           <span className="activity-title">{state.title}</span>
-          <span className="activity-meta">
-            {events.length > 0
-              ? `${events.length} ${events.length === 1 ? "update" : "updates"}`
-              : ""}
-          </span>
+          <span className="activity-meta">View activity</span>
+          <ChevronDown className="activity-chevron" size={14} />
         </summary>
         <ol className="activity-timeline">
-          {events.map((event) => (
+          {steps.map((event) => (
             <li key={event.sequence}>
               <span>
                 {activityLabel(event.phase, event.provider).replace(/…$/, "")}

@@ -134,7 +134,7 @@ fn write_error(error: sqlx::Error) -> Error {
     }
 }
 
-pub use accounts::Credentials;
+pub use accounts::{Credentials, PasswordChange};
 pub use registry::{GroupView, Topology};
 #[cfg(test)]
 #[path = "../tests/internal/mod.rs"]

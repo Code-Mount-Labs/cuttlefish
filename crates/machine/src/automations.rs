@@ -1,6 +1,6 @@
 //! Local authenticated automation facade and durable dispatch reconciliation.
 use crate::{Error, state::Machine};
-use orchestrator_coordinator::automations::{ScheduledRoute, Workflow};
+use orchestrator_coordinator::automations::{Routine, ScheduledRoute, Workflow};
 use serde::Deserialize;
 use serde_json::Value;
 use uuid::Uuid;
@@ -10,6 +10,8 @@ use uuid::Uuid;
 pub(crate) enum Change {
     SaveWorkflow { workflow: Workflow },
     SaveRoute { route: ScheduledRoute },
+    SaveRoutine { routine: Routine },
+    RunRoutine { routine_id: Uuid, run_id: Uuid },
     Run { workflow_id: Uuid, run_id: Uuid },
 }
 impl Machine {
@@ -25,6 +27,10 @@ impl Machine {
         let result = match change {
             Change::SaveWorkflow { workflow } => store.save_workflow(&token, workflow).await,
             Change::SaveRoute { route } => store.save_route(&token, route).await,
+            Change::SaveRoutine { routine } => store.save_routine(&token, routine).await,
+            Change::RunRoutine { routine_id, run_id } => {
+                store.run_routine(&token, routine_id, run_id).await
+            }
             Change::Run {
                 workflow_id,
                 run_id,

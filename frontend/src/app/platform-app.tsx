@@ -1,7 +1,8 @@
+import { ChangePasswordForm } from "../features/auth/change-password-form";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "../lib/schema";
-import { BookOpen, Folder, LogOut } from "lucide-react";
+import { BookOpen, Folder, LogOut, UserRound } from "lucide-react";
 import { ApiError, errorMessage, request } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Sidebar } from "../components/sidebar";
@@ -10,8 +11,9 @@ import { Groups } from "../features/platform/groups";
 export function PlatformApp() {
   const cache = useQueryClient(),
     [register, setRegister] = useState(false),
-    [page, setPage] = useState<"groups" | "guide">("groups"),
-    [error, setError] = useState("");
+    [page, setPage] = useState<"groups" | "guide" | "account">("groups"),
+    [error, setError] = useState(""),
+    [notice, setNotice] = useState("");
   const session = useQuery({
     queryKey: ["session"],
     queryFn: ({ signal }) =>
@@ -24,16 +26,21 @@ export function PlatformApp() {
       z.unknown(),
       { body },
     );
+    setNotice("");
+    setRegister(false);
     cache.removeQueries({ predicate: (q) => q.queryKey[0] !== "session" });
     await cache.invalidateQueries({ queryKey: ["session"] });
+  }
+  async function clearSession() {
+    await cache.cancelQueries();
+    cache.clear();
+    setError("");
+    await session.refetch();
   }
   async function logout() {
     try {
       await request("/api/v1/auth/logout", z.unknown(), { body: {} });
-      await cache.cancelQueries();
-      cache.clear();
-      setError("");
-      await session.refetch();
+      await clearSession();
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -41,6 +48,7 @@ export function PlatformApp() {
   if (session.error instanceof ApiError && session.error.status === 401)
     return (
       <AuthForm
+        notice={notice}
         register={register}
         onSubmit={login}
         onToggle={() => setRegister(!register)}
@@ -88,6 +96,16 @@ export function PlatformApp() {
         <div className="sidebar-bottom">
           <Button
             variant="ghost"
+            className="justify-start"
+            data-navigate
+            aria-current={page === "account" ? "page" : undefined}
+            onClick={() => setPage("account")}
+          >
+            <UserRound />
+            Account
+          </Button>
+          <Button
+            variant="ghost"
             className="justify-start font-normal text-muted-foreground"
             onClick={() => void logout()}
           >
@@ -104,6 +122,22 @@ export function PlatformApp() {
         )}
         {page === "groups" ? (
           <Groups />
+        ) : page === "account" ? (
+          <main className="platform-page">
+            <h1>Account</h1>
+            <section className="settings-section">
+              <h2>Password</h2>
+              <ChangePasswordForm
+                scope="platform"
+                onChanged={() => {
+                  setNotice(
+                    "Password changed. Sign in with your new password.",
+                  );
+                  void clearSession();
+                }}
+              />
+            </section>
+          </main>
         ) : (
           <main className="platform-page">
             <h1>Installation</h1>

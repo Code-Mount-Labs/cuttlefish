@@ -10,6 +10,8 @@ it("navigates chats, searches, preserves scroll position, and shows exact task s
   let phase = "claimed";
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const path = String(input).replace("/api/local/", "");
+    if (path === "automations")
+      return json({ workflows: [], routines: [], routes: [], runs: [] });
     if (path === "chat/workspaces")
       return json([
         { workspace },
@@ -104,6 +106,18 @@ it("navigates chats, searches, preserves scroll position, and shows exact task s
     </QueryClientProvider>,
   );
   await screen.findByRole("option", { name: "Second · Claude Code" });
+  for (const section of ["Routines", "Workflows", "Plugins"]) {
+    await user.click(screen.getByRole("button", { name: section }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: section })).toHaveFocus(),
+    );
+  }
+  await user.click(screen.getByRole("button", { name: "Chats" }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("textbox", { name: "Message Cuttlefish" }),
+    ).toHaveFocus(),
+  );
   await user.selectOptions(
     screen.getByLabelText("Workspace and provider"),
     "second",
@@ -127,19 +141,30 @@ it("navigates chats, searches, preserves scroll position, and shows exact task s
   await cache.invalidateQueries({ queryKey: ["turns"] });
   expect(await screen.findByText("Provider unavailable")).toBeVisible();
   expect(scroll.scrollTop).toBe(0);
+  await user.click(screen.getByRole("button", { name: "Jump to latest" }));
+  expect(scroll.scrollTop).toBe(1000);
+  expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
+  fireEvent.scroll(scroll);
   phase = "empty-reply";
   await cache.invalidateQueries({ queryKey: ["turns"] });
   await waitFor(() =>
     expect(screen.queryByText("Provider unavailable")).toBeNull(),
   );
-  await user.click(screen.getByRole("button", { name: "End session" }));
+  await user.click(
+    screen.getByRole("button", { name: "Conversation options" }),
+  );
+  await user.click(
+    await screen.findByRole("menuitem", { name: "End session" }),
+  );
   await waitFor(() =>
     expect(document.getElementById("chat-status")).toHaveTextContent(
       "Session ended",
     ),
   );
   await user.click(screen.getByRole("button", { name: "New chat" }));
-  expect(screen.getByRole("heading", { name: "New chat" })).toBeVisible();
+  expect(
+    screen.getByRole("heading", { name: "What would you like to do?" }),
+  ).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Chat" }));
   phase = "error";
   await cache.invalidateQueries({ queryKey: ["turns"] });

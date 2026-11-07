@@ -44,3 +44,6 @@ mod activity;
 
 #[path = "../suites/automations.rs"]
 mod automations;
+
+#[path = "../suites/routines.rs"]
+mod routines;

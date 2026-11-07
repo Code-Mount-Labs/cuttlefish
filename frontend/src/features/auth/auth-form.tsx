@@ -9,6 +9,7 @@ export function AuthForm({
   register = false,
   onSubmit,
   onToggle,
+  notice,
 }: {
   setup?: boolean;
   register?: boolean;
@@ -18,6 +19,7 @@ export function AuthForm({
     token?: string;
   }) => Promise<void>;
   onToggle?: () => void;
+  notice?: string;
 }) {
   const mutation = useMutation({ mutationFn: onSubmit });
   return (
@@ -30,6 +32,7 @@ export function AuthForm({
             ? "Create account"
             : "Sign in"}
       </h1>
+      {notice && <p role="status">{notice}</p>}
       <form
         id="auth-form"
         onSubmit={(e) => {

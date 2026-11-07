@@ -83,6 +83,7 @@ describe("accessible primitives and resources", () => {
     );
     await user.click(screen.getByRole("button", { name: "Open navigation" }));
     expect(screen.getByRole("dialog")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Navigation" })).toHaveFocus();
     await user.click(screen.getByText("Label"));
     expect(screen.getByRole("dialog")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Chats" }));

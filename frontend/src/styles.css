@@ -1,8 +1,10 @@
+@layer theme, base, components, utilities;
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "./theme.css";
 @import "shadcn/tailwind.css";
 @import "./fonts.css";
+@import "./features/automations/styles.css";
 @custom-variant dark (&:is(.dark *));
 
 @layer base {
@@ -89,12 +91,13 @@
     min-height: 0;
   }
   .sidebar {
-    width: 240px;
+    width: 248px;
     flex-shrink: 0;
     background: var(--sidebar);
     display: flex;
     flex-direction: column;
-    padding: 18px 12px 12px;
+    padding: 14px 12px 12px;
+    border-right: 1px solid var(--sidebar-border);
   }
   .brand {
     font-size: 17px;
@@ -135,19 +138,38 @@
   .conversation-header {
     height: 64px;
     min-height: 64px;
+    border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     padding: 0 24px;
     gap: 16px;
   }
-  .conversation-header [data-slot="native-select-wrapper"] {
+  .conversation-heading {
+    flex: 1;
     min-width: 0;
-    max-width: calc(100% - 110px);
   }
-  .conversation-header > button {
-    margin-left: auto;
-    color: var(--muted-foreground);
+  .conversation-heading h1 {
+    font-size: 14px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    letter-spacing: 0;
   }
+  .conversation-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .conversation-tools [data-slot="native-select-wrapper"] {
+    min-width: 0;
+    max-width: 230px;
+  }
+  .conversation-tools select {
+    text-overflow: ellipsis;
+  }
+
   .conversation-scroll {
     flex: 1;
     min-height: 0;
@@ -156,29 +178,29 @@
     scrollbar-gutter: stable;
   }
   .transcript {
-    max-width: 792px;
+    max-width: 800px;
     margin: 0 auto;
     padding: 24px 24px 30px;
   }
   #chat-welcome {
-    margin-top: clamp(30px, 20vh, 210px);
+    margin: 0 0 24px;
     font-size: 26px;
     text-align: center;
     letter-spacing: -0.5px;
   }
   .turn {
-    margin-bottom: 36px;
+    margin-bottom: 32px;
   }
   .message {
     font-size: 16px;
-    line-height: 1.75;
+    line-height: 1.65;
     overflow-wrap: anywhere;
   }
   .message.user {
     background: var(--muted);
     border-radius: 20px;
     padding: 12px 18px;
-    margin: 0 0 26px auto;
+    margin: 0 0 20px auto;
     width: fit-content;
     max-width: 85%;
     white-space: pre-wrap;
@@ -206,6 +228,13 @@
     list-style: decimal;
     padding-left: 24px;
   }
+  .message-body li + li {
+    margin-top: 10px;
+  }
+  .message-body li > p + p {
+    margin-top: 8px;
+  }
+
   .message-body a,
   .inline-download {
     text-decoration: underline;
@@ -269,12 +298,11 @@
   .task-activity summary::-webkit-details-marker {
     display: none;
   }
-  .task-activity summary::after {
-    content: "⌄";
-    font-size: 14px;
+  .activity-chevron {
+    transition: transform 120ms ease;
   }
-  .task-activity details[open] summary::after {
-    content: "⌃";
+  .task-activity details[open] .activity-chevron {
+    transform: rotate(180deg);
   }
   .activity-meta {
     font-size: 12px;
@@ -320,7 +348,7 @@
   }
   .composer-container {
     width: 100%;
-    max-width: 792px;
+    max-width: 800px;
     margin: 0 auto;
     padding: 0 24px 22px;
   }
@@ -334,25 +362,46 @@
     min-height: 18px;
   }
   .composer {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 22px;
-    padding: 12px 10px 8px;
+    width: 100%;
   }
-  .composer textarea {
-    resize: none;
-    max-height: 220px;
+  .composer-input-group {
+    overflow: hidden;
   }
   .composer-actions {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-top: 4px;
+    gap: 12px;
+    padding: 6px 12px 10px;
+  }
+  .composer-container {
+    position: relative;
+  }
+  .jump-to-latest {
+    position: absolute;
+    top: -40px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .conversation[data-empty="true"] .conversation-scroll {
+    flex: 0 1 auto;
+    padding-top: clamp(52px, 23vh, 230px);
+  }
+  .conversation[data-empty="true"] .transcript {
+    padding-bottom: 0;
+  }
+  .conversation[data-empty="true"] .composer-dock #chat-status:empty {
+    display: none;
   }
   #draft-attachments {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+    width: 100%;
+    padding: 0 12px;
+  }
+  #draft-attachments:empty {
+    display: none;
   }
   .file-card {
     display: flex;
@@ -490,6 +539,9 @@
     height: 100%;
     display: flex;
     flex-direction: column;
+  }
+  .mobile-sidebar .workspace-brand {
+    padding-right: 38px;
   }
   .mobile-sidebar .brand {
     padding-right: 40px;
@@ -668,18 +720,62 @@
     overscroll-behavior: contain;
   }
 
-  .primary-rail {
+  .workspace-brand {
     display: flex;
     align-items: center;
-    flex-direction: column;
-    gap: 12px;
-    padding: 16px 8px;
-    width: 56px;
-    flex-shrink: 0;
-    background: var(--sidebar);
+    justify-content: space-between;
+    min-height: 38px;
+    padding: 0 8px 12px;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
   }
-  .primary-rail [aria-current="page"] {
-    background: var(--accent);
+  .workspace-nav {
+    display: grid;
+    gap: 3px;
+    padding: 2px 0 20px;
+    border-bottom: 1px solid var(--sidebar-border);
+  }
+  .workspace-nav [aria-current="page"] {
+    background: var(--sidebar-accent);
+    color: var(--sidebar-accent-foreground);
+  }
+  .workspace-nav button,
+  .workspace-account button,
+  .chat-history-item {
+    min-height: 34px;
+  }
+  .workspace-nav svg,
+  .workspace-account svg {
+    color: var(--muted-foreground);
+  }
+  .history-heading {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted-foreground);
+    padding: 20px 8px 10px;
+  }
+  .history-search {
+    margin-bottom: 8px;
+  }
+  .chat-list {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .chat-history-item {
+    flex-shrink: 0;
+    text-align: left;
+  }
+  .history-empty {
+    color: var(--muted-foreground);
+    font-size: 12px;
+    padding: 12px 8px;
+  }
+  .workspace-account {
+    border-top: 1px solid var(--sidebar-border);
+    margin-top: 14px;
   }
   .automation-page {
     flex: 1;
@@ -722,8 +818,45 @@
       padding: 64px 16px 24px;
     }
     .mobile-menu {
-      left: 64px;
+      left: 12px;
+      width: 44px;
+      height: 44px;
     }
+    .conversation-heading {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .conversation-tools {
+      flex: 1;
+      justify-content: space-between;
+    }
+    .conversation-tools [data-slot="native-select-wrapper"] {
+      max-width: calc(100vw - 124px);
+    }
+    .composer-actions button,
+    .conversation-tools button,
+    .automation-touch-target,
+    .file-card,
+    .file-card button {
+      min-width: 44px;
+      min-height: 44px;
+    }
+    .workspace-nav button,
+    .workspace-account button,
+    .chat-history-item {
+      min-height: 44px;
+    }
+    .message {
+      font-size: 16px;
+    }
+    .conversation[data-empty="true"] .conversation-scroll {
+      padding-top: 16vh;
+    }
+
     .automation-list > li {
       flex-wrap: wrap;
     }

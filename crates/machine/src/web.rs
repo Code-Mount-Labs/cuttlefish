@@ -48,6 +48,7 @@ pub fn router(machine: Machine) -> Router {
         .route("/api/local/setup", post(setup))
         .route("/api/local/login", post(login))
         .route("/api/local/logout", post(logout))
+        .route("/api/local/password", post(change_password))
         .route("/api/local/config", get(configuration))
         .route("/api/local/database", post(database))
         .route("/api/local/database/retry", post(retry_database))
@@ -183,6 +184,15 @@ async fn login(
 async fn logout(State(machine): State<Machine>, headers: HeaderMap) -> Result<Response, Error> {
     let token = authorize(&machine, &headers, true).await?;
     machine.logout(&token).await?;
+    cookie(&machine, "", 0).await
+}
+async fn change_password(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+    Json(input): Json<crate::auth::PasswordChange>,
+) -> Result<Response, Error> {
+    let token = authorize(&machine, &headers, true).await?;
+    machine.change_password(&token, input).await?;
     cookie(&machine, "", 0).await
 }
 async fn configuration(

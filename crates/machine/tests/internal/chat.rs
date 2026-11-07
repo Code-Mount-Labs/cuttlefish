@@ -23,7 +23,8 @@ fn workspace() -> ProviderWorkspace {
     }
 }
 fn installed(_: LocalProvider) -> Option<PathBuf> {
-    std::env::current_exe().ok()
+    let path = PathBuf::from("/usr/bin/false");
+    path.is_file().then_some(path)
 }
 #[tokio::test]
 async fn chat_submission_history_and_workspace_configuration_use_authenticated_routes() {
@@ -673,6 +674,69 @@ async fn workflow_http_and_scheduler_use_the_existing_dispatcher() {
     assert_eq!(
         machine
             .chat(Uuid::from_u128(702).try_into().expect("thread"))
+            .await
+            .expect("chat")
+            .len(),
+        1
+    );
+    journal.close().await;
+    machine.close().await;
+    database.close().await;
+}
+
+#[tokio::test]
+async fn routine_http_creates_and_runs_without_a_workflow() {
+    let dir = tempfile::tempdir().expect("dir");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    initialize(&machine).await;
+    let database = Database::new().await;
+    let store = Store::open(&database.url).await.expect("store");
+    machine.execution.set(store.clone()).expect("execution");
+    machine.chats().await.expect("enroll router");
+    let journal = advertise_workspace(&machine, &store).await;
+    let app = crate::web::router(machine.clone());
+    let cookie = sign_in(&app, &machine).await;
+    let routine = json!({"id":Uuid::from_u128(710),"revision":0,"name":"News","workspace_id":Uuid::from_u128(5),"instructions":"Summarize current news","enabled":false,"first_run_ms":0,"interval_minutes":60});
+    let save = json!({"type":"save_routine","routine":routine});
+    check_automation_access(&app, &cookie, save.clone()).await;
+    for body in [
+        save,
+        json!({"type":"run_routine","routine_id":Uuid::from_u128(710),"run_id":Uuid::from_u128(711)}),
+    ] {
+        assert_eq!(
+            request(
+                &app,
+                "/api/local/automations",
+                Some(body),
+                Some(&cookie),
+                Some("http://127.0.0.1:8080")
+            )
+            .await
+            .0,
+            StatusCode::OK
+        );
+    }
+    let data = machine.automations().await.expect("routine data");
+    assert_eq!(data["workflows"], json!([]));
+    assert_eq!(
+        data["routines"][0]["instructions"],
+        "Summarize current news"
+    );
+    assert_eq!(
+        data["runs"][0]["routine_id"],
+        Uuid::from_u128(710).to_string()
+    );
+    assert!(data["runs"][0]["workflow_id"].is_null());
+    machine.reconcile_automations().await.expect("dispatch");
+    machine
+        .reconcile_automations()
+        .await
+        .expect("idempotent dispatch");
+    assert_eq!(
+        machine
+            .chat(Uuid::from_u128(711).try_into().expect("thread"))
             .await
             .expect("chat")
             .len(),

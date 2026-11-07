@@ -121,7 +121,7 @@ async fn run_agent(
     .await
     .map_err(|_| Error::Dependency("agent_journal_unavailable"))?;
     let profile = NodeProfile {
-        platform: native_platform(),
+        platform: native_platform(std::env::consts::OS),
         capabilities: Capability::native(),
         capacity: 4,
     };
@@ -154,10 +154,14 @@ async fn run_agent(
         );
     }
 }
-fn native_platform() -> Platform {
-    match std::env::consts::OS {
+fn native_platform(os: &str) -> Platform {
+    match os {
         "macos" => Platform::MacOs,
         "windows" => Platform::Windows,
         _ => Platform::Linux,
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/internal/runtime.rs"]
+mod tests;

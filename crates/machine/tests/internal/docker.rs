@@ -377,3 +377,99 @@ fn stopped_docker_is_started_without_reinstallation_or_group_changes() {
     );
     assert!(marker.exists());
 }
+
+#[tokio::test]
+async fn every_docker_failure_stops_provisioning_before_database_activation() {
+    fn path() -> Vec<Result<CommandResult, Error>> {
+        vec![
+            result(true, &json!({})),
+            result(false, &json!({})),
+            result(true, &json!({})),
+            result(true, &json!([{"Labels":{OWNER:identity()}}])),
+            result(false, &json!({})),
+            result(true, &json!({})),
+            result(true, &saved(false)),
+            result(true, &json!({})),
+        ]
+    }
+    for index in 0..8 {
+        let dir = tempfile::tempdir().expect("directory");
+        let mut replies = path();
+        replies[index] = Err(Error::Dependency("injected command failure"));
+        let probe = Arc::new(Probe::default());
+        let backend =
+            DockerBackend::with_dependencies(dir.path(), commands(replies), probe.clone());
+        assert!(backend.reconcile(&spec()).await.is_err());
+        assert!(!probe.0.load(Ordering::SeqCst));
+    }
+    for index in [0, 2, 3, 5, 6, 7] {
+        let dir = tempfile::tempdir().expect("directory");
+        let mut replies = path();
+        replies[index] = result(false, &json!({}));
+        let backend = DockerBackend::with_dependencies(
+            dir.path(),
+            commands(replies),
+            Arc::new(Probe::default()),
+        );
+        assert!(backend.reconcile(&spec()).await.is_err());
+    }
+    for index in [3, 6] {
+        let dir = tempfile::tempdir().expect("directory");
+        let mut replies = path();
+        replies[index] = Ok(CommandResult {
+            success: true,
+            stdout: b"bad JSON".to_vec(),
+        });
+        let backend = DockerBackend::with_dependencies(
+            dir.path(),
+            commands(replies),
+            Arc::new(Probe::default()),
+        );
+        assert!(backend.reconcile(&spec()).await.is_err());
+    }
+    let dir = tempfile::tempdir().expect("directory");
+    let mut backend =
+        DockerBackend::with_dependencies(dir.path(), commands(path()), Arc::new(Probe::default()));
+    backend.files.create = |_| Err(std::io::Error::other("disk failure"));
+    assert!(backend.reconcile(&spec()).await.is_err());
+    assert!(
+        backend
+            .ensure_managed("bad", "bad", 0, "bad")
+            .await
+            .is_err()
+    );
+    assert!(prepare_application_role(1, "bad", "bad").await.is_err());
+}
+
+#[tokio::test]
+async fn database_probe_failure_is_not_ready_and_invalid_environment_paths_are_rejected() {
+    #[derive(Debug)]
+    struct BadProbe;
+    impl DatabaseProbe for BadProbe {
+        fn verify<'a>(&'a self, _: &'a DatabaseSpec) -> ResourceFuture<'a> {
+            Box::pin(async { Err(Error::Invalid("database rejected")) })
+        }
+    }
+    let dir = tempfile::tempdir().expect("directory");
+    let backend =
+        DockerBackend::with_dependencies(dir.path(), commands(vec![]), Arc::new(BadProbe));
+    assert!(
+        backend
+            .reconcile(&DatabaseSpec::Existing { url: "url".into() })
+            .await
+            .is_err()
+    );
+    std::fs::create_dir(dir.path().join(format!("{}.env", identity())))
+        .expect("directory at env path");
+    assert!(
+        backend
+            .environment_file(&identity(), &"a".repeat(64))
+            .is_err()
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        let path = dir.path().join(std::ffi::OsString::from_vec(vec![255]));
+        assert!(path_string(&path).is_err());
+    }
+}

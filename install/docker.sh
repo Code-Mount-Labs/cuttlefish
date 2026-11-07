@@ -9,12 +9,40 @@ root() {
   else sudo -n -- "$@"
   fi
 }
+setup_rootless() {
+  # Allocate only additional, non-overlapping ranges; preserve existing mappings.
+  root sh -s -- "$(id -un)" <<'ROOTLESS'
+set -eu
+account=$1
+exec 9>/run/cuttlefish-subids.lock
+flock -x 9
+uid_ready=$(awk -F: -v user="$account" '$1 == user && $3 >= 65536 {found=1} END {print found+0}' /etc/subuid)
+gid_ready=$(awk -F: -v user="$account" '$1 == user && $3 >= 65536 {found=1} END {print found+0}' /etc/subgid)
+if [ "$uid_ready" -eq 0 ] || [ "$gid_ready" -eq 0 ]; then
+  start=$(awk -F: 'BEGIN {next_id=100000} NF == 3 && $2+$3 > next_id {next_id=$2+$3} END {printf "%.0f", next_id}' /etc/subuid /etc/subgid)
+  end=$((start+65535))
+  [ "$end" -lt 4294967295 ] || { echo 'No subordinate ID range is available.' >&2; exit 78; }
+  if [ "$uid_ready" -eq 0 ]; then usermod --add-subuids "$start-$end" "$account"; fi
+  if [ "$gid_ready" -eq 0 ]; then usermod --add-subgids "$start-$end" "$account"; fi
+fi
+ROOTLESS
+  dockerd-rootless-setuptool.sh install --force
+  root loginctl enable-linger "$(id -un)"
+}
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then exit 0; fi
 case "$(uname -s)" in
   Linux)
     if command -v docker >/dev/null 2>&1; then
       if [ "$(id -u)" -eq 0 ]; then systemctl start docker
-      else systemctl --user start docker || root systemctl start docker
+      else
+        systemctl --user start docker || true
+        if ! docker info >/dev/null 2>&1; then
+          # Do not replace an operator's configured remote context.
+          case "$(docker context show)" in default|rootless) ;; *) echo 'The configured Docker context is unavailable. Restore it before retrying.' >&2; exit 78;; esac
+          if command -v dockerd-rootless-setuptool.sh >/dev/null 2>&1; then setup_rootless
+          else echo 'Existing Docker requires administrator setup before retrying.' >&2; exit 78
+          fi
+        fi
       fi
     else
       # Only the official distributions whose repository layout is known here.
@@ -47,8 +75,7 @@ SOURCES
         systemctl enable --now docker
       else
         # Do not grant the application account root-equivalent Docker group access.
-        dockerd-rootless-setuptool.sh install --force
-        root loginctl enable-linger "$(id -un)"
+        setup_rootless
       fi
     fi
     docker info >/dev/null

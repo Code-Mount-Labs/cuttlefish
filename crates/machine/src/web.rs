@@ -253,3 +253,7 @@ async fn enroll(
     }
     Ok(Json(json!({"ok":true})))
 }
+
+#[cfg(test)]
+#[path = "../tests/internal/web_faults.rs"]
+mod tests;

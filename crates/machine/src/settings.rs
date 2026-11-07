@@ -40,7 +40,7 @@ impl Machine {
     /// # Errors
     /// Reports missing setup or invalid local storage.
     pub async fn identity(&self) -> Result<Identity, Error> {
-        let row: Option<(String, String, String)> = sqlx::query_as(
+        let row: Option<(sqlx::types::Json<Registration>, String, String)> = sqlx::query_as(
             "SELECT registration,platform_origin,public_origin FROM installation WHERE singleton=1",
         )
         .fetch_optional(&self.pool)
@@ -48,7 +48,7 @@ impl Machine {
         let (registration, platform_origin, public_origin) =
             row.ok_or(Error::Invalid("installation_not_initialized"))?;
         Ok(Identity {
-            registration: serde_json::from_str(&registration)?,
+            registration: registration.0,
             platform_origin,
             public_origin,
         })
@@ -76,8 +76,9 @@ impl Machine {
     pub async fn configure_model(&self, input: &ModelSettings) -> Result<(), Error> {
         LlmSelector::new(&input.endpoint, &input.api_key, &input.model)
             .map_err(|_| Error::Invalid("invalid_model_configuration"))?;
-        self.save_setting("model", &serde_json::to_string(input)?)
-            .await
+        sqlx::query("INSERT INTO local_settings(name,value) VALUES('model',?1) ON CONFLICT(name) DO UPDATE SET value=excluded.value")
+            .bind(sqlx::types::Json(input)).execute(&self.pool).await?;
+        Ok(())
     }
     /// Read public model fields without exposing the key.
     ///
@@ -103,14 +104,16 @@ impl Machine {
         let store = self
             .execution
             .get_or_try_init(|| async {
-                if self.status().await?.state != "ready" {
-                    return Err(Error::Dependency("database_setup_required"));
-                }
-                let spec: String =
-                    sqlx::query_scalar("SELECT spec FROM resources WHERE singleton=1")
+                let (state, spec): (String, Option<sqlx::types::Json<DatabaseSpec>>) =
+                    sqlx::query_as("SELECT state,spec FROM resources WHERE singleton=1")
                         .fetch_one(&self.pool)
                         .await?;
-                let spec: DatabaseSpec = serde_json::from_str(&spec)?;
+                if state != "ready" {
+                    return Err(Error::Dependency("database_setup_required"));
+                }
+                let spec = spec
+                    .ok_or(Error::Invalid("ready_database_has_no_configuration"))?
+                    .0;
                 Store::open(&spec.connection_url())
                     .await
                     .map_err(|_| Error::Dependency("execution_database_unavailable"))
@@ -175,31 +178,31 @@ pub fn validate_origin(value: &str) -> Result<String, Error> {
 
 /// Write missing editable defaults without overwriting an operator's changes.
 pub(crate) fn initialize_prompts(directory: &std::path::Path) -> Result<(), Error> {
+    initialize_prompts_with(directory, &crate::files::AtomicFiles::default())
+}
+fn initialize_prompts_with(
+    directory: &std::path::Path,
+    files: &crate::files::AtomicFiles,
+) -> Result<(), Error> {
     use orchestrator_prompts::{Kind, Prompt};
-    use std::io::Write;
-    for (path, kind) in [
-        ("router/selection.md", Kind::Router),
-        ("super-agent/planner.md", Kind::Planner),
+    for (subdirectory, name, kind) in [
+        ("router", "selection.md", Kind::Router),
+        ("super-agent", "planner.md", Kind::Planner),
     ] {
-        let target = directory.join("prompts").join(path);
-        let parent = target
-            .parent()
-            .ok_or(Error::Invalid("invalid_prompt_path"))?;
-        std::fs::create_dir_all(parent)?;
+        let parent = directory.join("prompts").join(subdirectory);
+        let target = parent.join(name);
+        std::fs::create_dir_all(&parent)?;
         if target.try_exists()? {
             continue;
         }
-        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-        temporary.write_all(Prompt::bundled(kind).as_str().as_bytes())?;
-        temporary.as_file().sync_all()?;
-        match temporary.persist_noclobber(&target) {
-            Ok(_) => {
-                #[cfg(unix)]
-                std::fs::File::open(parent)?.sync_all()?;
-            }
-            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.error.into()),
+        match files.write_new(&parent, &target, Prompt::bundled(kind).as_str().as_bytes()) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
         }
     }
     Ok(())
 }
+#[cfg(test)]
+#[path = "../tests/internal/settings_files.rs"]
+mod tests;

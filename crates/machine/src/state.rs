@@ -22,6 +22,8 @@ pub struct Machine {
     directory: PathBuf,
     pub(crate) changes: Arc<Mutex<()>>,
     pub(crate) password_slots: Arc<tokio::sync::Semaphore>,
+    pub(crate) files: crate::files::AtomicFiles,
+    pub(crate) passwords: crate::passwords::Passwords,
     backend: Arc<dyn DatabaseBackend>,
     _ownership: Arc<Ownership>,
     pub(crate) execution: Arc<tokio::sync::OnceCell<orchestrator_coordinator::store::Store>>,
@@ -32,6 +34,13 @@ impl Machine {
     /// # Errors
     /// Reports filesystem, migration, or local database failures.
     pub async fn open(directory: &Path, backend: Arc<dyn DatabaseBackend>) -> Result<Self, Error> {
+        Self::open_with(directory, backend, protect).await
+    }
+    async fn open_with(
+        directory: &Path,
+        backend: Arc<dyn DatabaseBackend>,
+        protect: fn(&Path, bool) -> std::io::Result<()>,
+    ) -> Result<Self, Error> {
         reject_symlink(directory)?;
         std::fs::create_dir_all(directory)?;
         protect(directory, true)?;
@@ -72,6 +81,8 @@ impl Machine {
             directory: directory.to_owned(),
             changes: Arc::new(Mutex::new(())),
             password_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+            files: crate::files::AtomicFiles::default(),
+            passwords: crate::passwords::Passwords::default(),
             backend,
             _ownership: Arc::new(Ownership(ownership)),
             execution: Arc::new(tokio::sync::OnceCell::new()),
@@ -89,18 +100,12 @@ impl Machine {
     ) -> Result<(), Error> {
         crate::settings::validate_origin(platform_origin)?;
         crate::settings::validate_origin(public_origin)?;
-        let encoded = serde_json::to_string(registration)?;
         let changed=sqlx::query("INSERT INTO installation(singleton,registration,platform_origin,public_origin) VALUES(1,?1,?2,?3) ON CONFLICT DO NOTHING")
-            .bind(&encoded).bind(platform_origin).bind(public_origin).execute(&self.pool).await?.rows_affected();
+            .bind(sqlx::types::Json(registration)).bind(platform_origin).bind(public_origin).execute(&self.pool).await?.rows_affected();
         if changed == 0 {
-            let saved:(String,String,String)=sqlx::query_as("SELECT registration,platform_origin,public_origin FROM installation WHERE singleton=1").fetch_one(&self.pool).await?;
-            if saved
-                != (
-                    encoded,
-                    platform_origin.to_owned(),
-                    public_origin.to_owned(),
-                )
-            {
+            let same:bool=sqlx::query_scalar("SELECT registration=?1 AND platform_origin=?2 AND public_origin=?3 FROM installation WHERE singleton=1")
+                .bind(sqlx::types::Json(registration)).bind(platform_origin).bind(public_origin).fetch_one(&self.pool).await?;
+            if !same {
                 return Err(Error::Invalid(
                     "installation identity is already configured",
                 ));
@@ -113,19 +118,20 @@ impl Machine {
     /// # Errors
     /// Reports local storage failure.
     pub async fn status(&self) -> Result<ResourceStatus, Error> {
-        let (revision, state, spec, error_code): (i64, String, Option<String>, Option<String>) =
-            sqlx::query_as(
-                "SELECT revision,state,spec,error_code FROM resources WHERE singleton=1",
-            )
-            .fetch_one(&self.pool)
-            .await?;
-        let mode = spec
-            .map(|spec| serde_json::from_str::<DatabaseSpec>(&spec))
-            .transpose()?
-            .map(|spec| match spec {
-                DatabaseSpec::Existing { .. } => "existing".into(),
-                DatabaseSpec::Managed { .. } => "managed".into(),
-            });
+        let (revision, state, spec, error_code): (
+            i64,
+            String,
+            Option<sqlx::types::Json<DatabaseSpec>>,
+            Option<String>,
+        ) = sqlx::query_as(
+            "SELECT revision,state,spec,error_code FROM resources WHERE singleton=1",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let mode = spec.map(|spec| match spec.0 {
+            DatabaseSpec::Existing { .. } => "existing".into(),
+            DatabaseSpec::Managed { .. } => "managed".into(),
+        });
         Ok(ResourceStatus {
             revision,
             state,
@@ -208,7 +214,7 @@ impl Machine {
             }
         };
         sqlx::query("UPDATE resources SET revision=revision+1,state='provisioning',spec=?1,error_code=NULL WHERE singleton=1")
-            .bind(serde_json::to_string(&spec)?).execute(&self.pool).await?;
+            .bind(sqlx::types::Json(&spec)).execute(&self.pool).await?;
         Ok(Some(spec))
     }
     /// Resume an interrupted or failed setup using the original saved credentials
@@ -218,11 +224,11 @@ impl Machine {
     /// Reports unconfigured state, backend failure or unavailable local storage.
     pub async fn recover(&self) -> Result<ResourceStatus, Error> {
         let _change = self.changes.lock().await;
-        let saved: Option<String> =
+        let saved: Option<sqlx::types::Json<DatabaseSpec>> =
             sqlx::query_scalar("SELECT spec FROM resources WHERE singleton=1")
                 .fetch_one(&self.pool)
                 .await?;
-        let spec = serde_json::from_str(&saved.ok_or(Error::Invalid("choose a database first"))?)?;
+        let spec = saved.ok_or(Error::Invalid("choose a database first"))?.0;
         sqlx::query("UPDATE resources SET state='provisioning',error_code=NULL WHERE singleton=1")
             .execute(&self.pool)
             .await?;
@@ -273,11 +279,14 @@ fn protect(path: &Path, directory: bool) -> std::io::Result<()> {
         std::fs::set_permissions(
             path,
             std::fs::Permissions::from_mode(if directory { 0o700 } else { 0o600 }),
-        )?;
+        )
     }
     #[cfg(not(unix))]
-    let _ = (path, directory);
-    Ok(())
+    {
+        let _ = directory;
+        // Windows inherits access control from the user-owned state directory.
+        std::fs::metadata(path).map(|_| ())
+    }
 }
 
 fn reject_symlink(path: &Path) -> std::io::Result<()> {
@@ -301,3 +310,7 @@ impl Drop for Ownership {
         let _ = self.0.unlock();
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/internal/startup.rs"]
+mod tests;

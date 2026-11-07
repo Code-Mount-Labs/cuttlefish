@@ -14,7 +14,7 @@ use std::sync::{
 };
 use uuid::Uuid;
 #[derive(Debug, Default)]
-struct Backend {
+pub(crate) struct Backend {
     specs: Mutex<Vec<String>>,
     fail: AtomicBool,
     pause: AtomicBool,
@@ -38,7 +38,7 @@ impl DatabaseBackend for Backend {
         })
     }
 }
-fn registration() -> Registration {
+pub(crate) fn registration() -> Registration {
     Registration {
         group_id: GroupId::try_from(Uuid::from_u128(1)).expect("group"),
         installation_id: InstallationId::try_from(Uuid::from_u128(2)).expect("id"),
@@ -49,7 +49,7 @@ fn registration() -> Registration {
         invitation: "b".repeat(64).try_into().expect("invitation"),
     }
 }
-async fn initialize(machine: &Machine) {
+pub(crate) async fn initialize(machine: &Machine) {
     machine
         .initialize(
             &registration(),
@@ -202,3 +202,5 @@ mod registry;
 mod state_cases;
 
 mod end_to_end;
+
+mod faults;

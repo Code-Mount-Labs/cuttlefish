@@ -121,6 +121,7 @@ pub struct DockerBackend {
     directory: PathBuf,
     commands: Arc<dyn DockerCommands>,
     probe: Arc<dyn DatabaseProbe>,
+    files: crate::files::AtomicFiles,
 }
 impl DockerBackend {
     /// Use real Docker and `PostgreSQL` verification.
@@ -139,6 +140,7 @@ impl DockerBackend {
             directory: directory.to_owned(),
             commands,
             probe,
+            files: crate::files::AtomicFiles::default(),
         }
     }
     async fn command(&self, args: Vec<String>) -> Result<Vec<u8>, Error> {
@@ -203,7 +205,6 @@ impl DockerBackend {
         Ok(())
     }
     fn environment_file(&self, container: &str, password: &str) -> Result<String, Error> {
-        use std::io::Write;
         let path = self.directory.join(format!("{container}.env"));
         let expected = format!(
             "POSTGRES_USER=postgres\nPOSTGRES_DB=cuttlefish\nPOSTGRES_PASSWORD={password}\n"
@@ -213,18 +214,10 @@ impl DockerBackend {
                 return Err(Error::Invalid("saved_database_environment_changed"));
             }
         } else {
-            let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
-            temporary.write_all(expected.as_bytes())?;
-            temporary.as_file().sync_all()?;
-            temporary
-                .persist_noclobber(&path)
-                .map_err(|error| error.error)?;
-            #[cfg(unix)]
-            std::fs::File::open(&self.directory)?.sync_all()?;
+            self.files
+                .write_new(&self.directory, &path, expected.as_bytes())?;
         }
-        path.to_str()
-            .map(str::to_owned)
-            .ok_or(Error::Invalid("installation_path_is_not_utf8"))
+        path_string(&path)
     }
 }
 impl DatabaseBackend for DockerBackend {
@@ -455,3 +448,9 @@ async fn execute_bounded(mut command: Command, deadline: Duration) -> Result<Com
 #[cfg(test)]
 #[path = "../tests/internal/docker.rs"]
 mod tests;
+
+fn path_string(path: &Path) -> Result<String, Error> {
+    path.to_str()
+        .map(str::to_owned)
+        .ok_or(Error::Invalid("installation_path_is_not_utf8"))
+}

@@ -37,15 +37,10 @@ impl Machine {
     /// # Errors
     /// Reports protected-file creation failures.
     pub fn bootstrap_token(&self) -> Result<NodeToken, Error> {
-        use std::io::Write;
         let path = self.directory().join("setup.token");
         if !path.exists() {
-            let mut file = tempfile::NamedTempFile::new_in(self.directory())?;
-            file.write_all(random_token().as_bytes())?;
-            file.as_file().sync_all()?;
-            file.persist_noclobber(&path).map_err(|error| error.error)?;
-            #[cfg(unix)]
-            std::fs::File::open(self.directory())?.sync_all()?;
+            self.files
+                .write_new(self.directory(), &path, random_token().as_bytes())?;
         }
         NodeToken::try_from(std::fs::read_to_string(path)?)
             .map_err(|_| Error::Invalid("invalid_local_setup_token"))
@@ -68,15 +63,7 @@ impl Machine {
             .clone()
             .try_acquire_owned()
             .map_err(|_| Error::Limited)?;
-        let (username, hash) = tokio::task::spawn_blocking(move || {
-            use argon2::password_hash::PasswordHasher;
-            let _permit = permit;
-            argon2::Argon2::default()
-                .hash_password(input.password.as_bytes())
-                .map(|hash| (input.username, hash.to_string()))
-        })
-        .await?
-        .map_err(|_| Error::Dependency("password_hashing_failed"))?;
+        let (username, hash) = self.passwords.hash(input, permit).await?;
         let mut tx = self.pool.begin().await?;
         let created=sqlx::query("INSERT INTO local_admin(singleton,username,password_hash) VALUES(1,?1,?2) ON CONFLICT DO NOTHING").bind(username).bind(hash).execute(&mut *tx).await?.rows_affected();
         if created == 0 {
@@ -105,18 +92,9 @@ impl Machine {
             .map_err(|_| Error::Limited)?;
         let row:Option<(String,String)>=sqlx::query_as("UPDATE local_admin SET failed_logins=CASE WHEN login_window<unixepoch()-60 THEN 1 ELSE failed_logins+1 END,login_window=CASE WHEN login_window<unixepoch()-60 THEN unixepoch() ELSE login_window END WHERE failed_logins<5 OR login_window<unixepoch()-60 RETURNING username,password_hash").fetch_optional(&self.pool).await?;
         let (username, hash) = row.ok_or(Error::Unauthorized)?;
-        let valid = tokio::task::spawn_blocking(move || {
-            use argon2::password_hash::{PasswordVerifier, phc::PasswordHash};
-            let _permit = permit;
-            let valid = PasswordHash::new(&hash).is_ok_and(|hash| {
-                argon2::Argon2::default()
-                    .verify_password(input.password.as_bytes(), &hash)
-                    .is_ok()
-            });
-            valid && input.username == username
-        })
-        .await?;
-        if !valid {
+        let username_matches = input.username == username;
+        let valid = self.passwords.verify(input.password, hash, permit).await?;
+        if !valid || !username_matches {
             return Err(Error::Unauthorized);
         }
         let token = random_token();

@@ -51,9 +51,11 @@ enum Mode {
 /// # Errors
 /// Reports invalid setup input, network, storage and listener errors.
 pub async fn run(cli: Cli) -> Result<(), Error> {
-    if matches!(cli.command, Mode::InstallDocker) {
-        return crate::dependencies::install_docker(true).await;
-    }
+    let (platform, listen) = match cli.command {
+        Mode::InstallDocker => return crate::dependencies::install_docker(true).await,
+        Mode::Setup { platform, listen } => (Some(platform), listen),
+        Mode::Serve { listen } => (None, listen),
+    };
     let directory = match cli.state_dir {
         Some(path) => path,
         None => PathBuf::from(
@@ -64,26 +66,21 @@ pub async fn run(cli: Cli) -> Result<(), Error> {
         .join(".cuttlefish"),
     };
     let machine = Machine::open(&directory, Arc::new(DockerBackend::new(&directory))).await?;
-    let listen = match cli.command {
-        Mode::Setup { platform, listen } => {
-            if matches!(
-                machine.identity().await,
-                Err(Error::Invalid("installation_not_initialized"))
-            ) {
-                setup(
-                    &machine,
-                    &platform,
-                    listen,
-                    &mut io::stdin().lock(),
-                    &mut io::stdout(),
-                )
-                .await?;
-            }
-            listen
-        }
-        Mode::Serve { listen } => listen,
-        Mode::InstallDocker => return Err(Error::Invalid("unexpected setup mode")),
-    };
+    if let Some(platform) = platform
+        && matches!(
+            machine.identity().await,
+            Err(Error::Invalid("installation_not_initialized"))
+        )
+    {
+        setup(
+            &machine,
+            &platform,
+            listen,
+            &mut io::stdin().lock(),
+            &mut io::stdout(),
+        )
+        .await?;
+    }
     let identity = machine.identity().await?;
     println!("Cuttlefish dashboard: {}", identity.public_origin);
     if !machine.initialized().await? {
@@ -92,11 +89,8 @@ pub async fn run(cli: Cli) -> Result<(), Error> {
             machine.bootstrap_token()?.expose()
         );
     }
-    let worker = std::env::current_exe()?.with_file_name(if cfg!(windows) {
-        "orchestrator-node.exe"
-    } else {
-        "orchestrator-node"
-    });
+    let worker = std::env::current_exe()?
+        .with_file_name(format!("orchestrator-node{}", std::env::consts::EXE_SUFFIX));
     crate::runtime::serve(machine, listen, worker).await
 }
 async fn setup<R: BufRead, W: Write>(

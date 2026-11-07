@@ -1,0 +1,58 @@
+name: Installer release candidates
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/release-build.yml
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.96.1 --profile minimal --target ${{ matrix.target }}
+      - name: Install Linux static linker
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build release executables
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
+        run: cargo build --release --locked --target ${{ matrix.target }} -p cuttlefish-machine -p orchestrator-node -p orchestrator-coordinator --bins
+      - name: Smoke test and package
+        shell: bash
+        env:
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="cuttlefish-machine"))')
+          mkdir -p package artifacts
+          for binary in cuttlefish orchestrator-node orchestrator-coordinator; do
+            target/$RELEASE_TARGET/release/$binary --help > /dev/null
+            cp target/$RELEASE_TARGET/release/$binary package/
+          done
+          cp -R prompts package/
+          cp LICENSE package/
+          tar -czf artifacts/cuttlefish-v$version-$RELEASE_TARGET.tar.gz -C package .
+          (cd artifacts && shasum -a 256 *.tar.gz > SHA256SUMS-$RELEASE_TARGET)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: installer-${{ matrix.target }}
+          path: artifacts/
+          if-no-files-found: error

@@ -35,7 +35,7 @@ const server = createServer(async (req, res) => {
     const path = fullPath.slice(base.length);
     res.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self' data:; img-src 'self' blob: data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
     );
     if (!path.startsWith("/api/local/")) {
       const asset = {
@@ -257,6 +257,8 @@ try {
   await until(() =>
     evaluate("document.getElementById('chat-workspace')?.options.length===1"),
   );
+  await evaluate("document.fonts.ready");
+  assert.equal(await evaluate("document.fonts.check('12px \"Geist Variable\"') && document.fonts.check('14px \"IBM Plex Sans Variable\"')"), true, 'preset fonts load locally');
   const themeMetrics = await evaluate(`(() => {
     const root = getComputedStyle(document.documentElement);
     const input = getComputedStyle(document.getElementById('chat-search'));
@@ -264,23 +266,25 @@ try {
     return {rootSize:root.fontSize,inputHeight:input.height,inputBorder:input.borderTopWidth,sendWidth:send.width,sendHeight:send.height,card:root.getPropertyValue('--card'),background:root.getPropertyValue('--background')};
   })()`);
   assert.equal(themeMetrics.rootSize, '16px', 'browser default scale is preserved');
-  assert.equal(themeMetrics.inputHeight, '36px', 'shadcn input size wins over layout CSS');
+  assert.match(await evaluate("getComputedStyle(document.documentElement).getPropertyValue('--primary').trim()"), /^oklch\((?:45%|0\.45) 0?\.085 224\.283\)$/, 'selected preset owns the primary color');
+  assert.match(await evaluate("getComputedStyle(document.body).fontFamily"), /Geist Variable/, 'selected body typeface');
+  assert.equal(themeMetrics.inputHeight, '28px', 'shadcn input size wins over layout CSS');
   assert.equal(themeMetrics.inputBorder, '1px', 'search retains its input treatment');
-  assert.equal(themeMetrics.sendWidth, '36px', 'shadcn icon button sizing');
-  assert.equal(themeMetrics.sendHeight, '36px');
+  assert.equal(themeMetrics.sendWidth, '28px', 'shadcn icon button sizing');
+  assert.equal(themeMetrics.sendHeight, '28px');
   assert.notEqual(themeMetrics.card, themeMetrics.background, 'card and page tokens remain independent');
   const darkBackground = await evaluate("getComputedStyle(document.body).backgroundColor");
   await evaluate("document.documentElement.classList.remove('dark')");
   assert.notEqual(await evaluate("getComputedStyle(document.body).backgroundColor"), darkBackground, 'light palette responds to theme class');
   await evaluate("document.documentElement.classList.add('dark'); document.getElementById('chat-message').focus()");
-  await until(() => evaluate("getComputedStyle(document.getElementById('chat-message')).boxShadow !== 'none'"));
+  await until(() => evaluate("getComputedStyle(document.getElementById('chat-message')).boxShadow.includes('2px')"));
   await evaluate("document.querySelector('button[aria-label=Plugins]').click()");
   await until(() => evaluate("document.body.textContent.includes('No plugins installed.')"));
   await evaluate("document.querySelector('button[aria-label=Workflows]').click()");
   await until(() => evaluate("document.querySelector('.section-header button')!==null"));
   await evaluate("document.querySelector('.section-header button').click()");
   await until(() => evaluate("document.querySelector('[role=dialog] textarea')!==null"));
-  assert.equal(await evaluate("getComputedStyle(document.querySelector('[data-slot=dialog-title]')).fontSize"), '18px', 'dialog typography is not reset by global headings');
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('[data-slot=dialog-title]')).fontSize"), '14px', 'dialog typography is not reset by global headings');
   await evaluate("Promise.all(document.getAnimations().filter(a => a.effect.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})))");
   const editorScreenshot = await cmd("Page.captureScreenshot", {format:"png"});
   await writeFile("/tmp/cuttlefish-workflow-editor.png",Buffer.from(editorScreenshot.data,"base64"));

@@ -30,6 +30,8 @@ export default defineConfig(({ mode }) => {
           ? "dist/platform"
           : "dist",
       emptyOutDir: !embedded,
+      // Embedded binaries have no asset directory; bundle their local fonts.
+      assetsInlineLimit: embedded ? 200_000 : 4096,
       cssCodeSplit: !embedded,
       sourcemap: false,
       rolldownOptions: {

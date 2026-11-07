@@ -1,0 +1,33 @@
+/* Local variable-font subsets for the current Latin-script interface. */
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("@fontsource-variable/geist/files/geist-latin-wght-normal.woff2")
+    format("woff2");
+}
+@font-face {
+  font-family: "Geist Variable";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("@fontsource-variable/geist/files/geist-latin-wght-italic.woff2")
+    format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans Variable";
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: swap;
+  src: url("@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-normal.woff2")
+    format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans Variable";
+  font-style: italic;
+  font-weight: 100 700;
+  font-display: swap;
+  src: url("@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-italic.woff2")
+    format("woff2");
+}

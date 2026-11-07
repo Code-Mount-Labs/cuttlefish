@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "./theme.css";
+@import "shadcn/tailwind.css";
+@import "./fonts.css";
 @custom-variant dark (&:is(.dark *));
 
 @layer base {
@@ -8,8 +10,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground font-sans;
-    font-synthesis: none;
+    @apply font-sans bg-background text-foreground;
   }
   button,
   summary {
@@ -38,6 +39,11 @@
   p {
     margin: 0;
   }
+  h1,
+  h2,
+  h3 {
+    @apply font-heading;
+  }
   h1 {
     font-size: 22px;
     font-weight: 600;
@@ -52,6 +58,9 @@
   }
   svg {
     flex-shrink: 0;
+  }
+  html {
+    @apply font-sans;
   }
 }
 
@@ -661,6 +670,7 @@
 
   .primary-rail {
     display: flex;
+    align-items: center;
     flex-direction: column;
     gap: 12px;
     padding: 16px 8px;

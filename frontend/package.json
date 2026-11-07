@@ -20,9 +20,12 @@
     "test:vite": "node scripts/verify-vite.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/ibm-plex-sans": "^5.3.0",
     "@tanstack/react-query": "^5.107.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cn": "^0.5.2",
     "lucide-react": "^1.70.0",
     "radix-ui": "^1.8.1",
     "react": "^19.3.1",
@@ -50,6 +53,7 @@
     "globals": "^17.14.0",
     "jsdom": "^31.0.0",
     "prettier": "^3.9.10",
+    "shadcn": "^4.23.0",
     "tailwindcss": "^4.3.5",
     "tw-animate-css": "^1.4.0",
     "typescript": "^6.0.3",

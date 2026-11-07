@@ -45,6 +45,7 @@ impl RoutingService {
         token: &NodeToken,
         request: RouteRequest,
     ) -> Result<DispatchView, Error> {
+        self.store.validate_request_files(token, &request).await?;
         self.execute(token, Input::Submit(request)).await
     }
     /// Move only a provably unclaimed start away from an unavailable node.

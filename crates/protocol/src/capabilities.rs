@@ -22,6 +22,11 @@ impl Capability {
             .map(|name| Self(name.to_owned()))
             .collect()
     }
+    /// Capability corresponding to a supported local specialist.
+    #[must_use]
+    pub fn local_provider(provider: crate::execution::LocalProvider) -> Self {
+        Self(provider.name().to_owned())
+    }
     /// Borrow the canonical name.
     #[must_use]
     pub fn as_str(&self) -> &str {

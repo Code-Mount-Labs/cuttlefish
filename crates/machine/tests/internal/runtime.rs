@@ -254,3 +254,83 @@ async fn listener_address_failure_does_not_start_background_services() {
     );
     machine.close().await;
 }
+
+#[tokio::test]
+async fn unavailable_provider_catalog_does_not_stop_node_heartbeats() {
+    use axum::{Json, Router, routing::post};
+    use orchestrator_protocol::{
+        routing::{DispatchBatch, DispatchPoll},
+        sync::{SyncRequest, SyncResponse},
+    };
+    let received = Arc::new(tokio::sync::Notify::new());
+    let observed = received.clone();
+    let app = Router::new()
+        .route(
+            "/api/node/enroll",
+            post(|| async { Json(serde_json::json!({})) }),
+        )
+        .route(
+            "/v1/sync",
+            post(move |Json(request): Json<SyncRequest>| {
+                let observed = observed.clone();
+                async move {
+                    observed.notify_one();
+                    Json(SyncResponse {
+                        version: request.version,
+                        acknowledged: request.events.iter().map(|e| e.sequence).collect(),
+                    })
+                }
+            }),
+        )
+        .route(
+            "/v1/dispatch/poll",
+            post(|Json(poll): Json<DispatchPoll>| async move {
+                Json(DispatchBatch {
+                    acknowledged: poll.accepted,
+                    command: None,
+                })
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener");
+    let origin = format!("http://{}", listener.local_addr().expect("address"));
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("serve");
+    });
+    let dir = tempfile::tempdir().expect("directory");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    initialize(&machine).await;
+    machine
+        .save_setting("router_origin", &origin)
+        .await
+        .expect("router");
+    let journal = machine.agent_journal().await.expect("journal");
+    let pool = sqlx::SqlitePool::connect(&format!("sqlite:{}", journal.path().display()))
+        .await
+        .expect("pool");
+    sqlx::query("ALTER TABLE workspace_providers RENAME COLUMN configuration TO broken")
+        .execute(&pool)
+        .await
+        .expect("fault");
+    pool.close().await;
+    journal.close().await;
+    let local = machine.clone();
+    let worker = tokio::spawn(async move {
+        run_agent(
+            &local,
+            std::env::current_exe().expect("executable"),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), received.notified())
+        .await
+        .expect("heartbeat despite catalog failure");
+    worker.abort();
+    let _ = worker.await;
+    server.abort();
+    machine.close().await;
+}

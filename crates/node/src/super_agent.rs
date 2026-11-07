@@ -65,7 +65,7 @@ impl Journal {
     }
 }
 impl Remote {
-    async fn exchange(
+    pub(crate) async fn exchange(
         &self,
         path: &str,
         method: Method,

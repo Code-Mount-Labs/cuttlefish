@@ -12,12 +12,15 @@ pub enum Kind {
     Router,
     /// Planning, delegation and learning instructions.
     Planner,
+    /// Instructions for locally authenticated specialist providers.
+    Specialist,
 }
 impl Kind {
     const fn path(self) -> &'static str {
         match self {
             Self::Router => "router/selection.md",
             Self::Planner => "super-agent/planner.md",
+            Self::Specialist => "execution/specialist.md",
         }
     }
 }
@@ -33,6 +36,7 @@ impl Prompt {
             match kind {
                 Kind::Router => include_str!("../../../prompts/router/selection.md"),
                 Kind::Planner => include_str!("../../../prompts/super-agent/planner.md"),
+                Kind::Specialist => include_str!("../../../prompts/execution/specialist.md"),
             }
             .to_owned(),
         )
@@ -70,7 +74,7 @@ mod tests {
     #[test]
     fn defaults_and_overrides_are_bounded_and_exact() {
         let temp = tempfile::tempdir().expect("directory");
-        for kind in [Kind::Router, Kind::Planner] {
+        for kind in [Kind::Router, Kind::Planner, Kind::Specialist] {
             assert!(!Prompt::bundled(kind).as_str().is_empty());
             assert!(Prompt::load(temp.path(), kind).is_err());
             let path = temp.path().join(kind.path());

@@ -32,3 +32,9 @@ mod collaboration_storage;
 
 #[path = "../suites/super_agent_faults.rs"]
 mod super_agent_faults;
+
+#[path = "../suites/chat.rs"]
+mod chat;
+
+#[path = "../suites/attachments.rs"]
+mod attachments;

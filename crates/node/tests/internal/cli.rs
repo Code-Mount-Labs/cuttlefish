@@ -648,3 +648,67 @@ async fn super_agent_configuration_is_explicit_and_failures_are_reported() {
     ));
     fixture.journal.close().await;
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn worker_mode_resolves_local_provider_and_preserves_uncertain_execution() {
+    use orchestrator_protocol::execution::{LocalProvider, ProviderWorkspace};
+    use std::os::unix::fs::PermissionsExt;
+    for fail in [false, true] {
+        let fixture = common::Fixture::new().await;
+        let directory = fixture.temp.path().canonicalize().expect("directory");
+        let executable = directory.join("provider");
+        let response = serde_json::json!({"type":"result","session_id":common::id::<SessionId>(4),"is_error":false,"subtype":"success","result":"Done"});
+        let body = if fail {
+            "exit 1".to_owned()
+        } else {
+            format!("cat >/dev/null\nprintf '%s\\n' '{response}'")
+        };
+        std::fs::write(&executable, format!("#!/bin/sh\n{body}\n")).expect("provider");
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
+            .expect("mode");
+        let instructions = directory.join("instructions.md");
+        std::fs::write(&instructions, "Test").expect("prompt");
+        fixture
+            .journal
+            .configure_execution(&crate::execution::ExecutionConfig {
+                workspace: ProviderWorkspace {
+                    workspace_id: common::id(5),
+                    name: "Worker".into(),
+                    provider: LocalProvider::Claude,
+                    allow_edits: true,
+                },
+                executable,
+                directory,
+                instructions,
+            })
+            .await
+            .expect("configure");
+        fixture.accepted().await;
+        fixture
+            .journal
+            .accept(&common::cancel(11), common::instance())
+            .await
+            .expect("cancel");
+        let mode = || Cli {
+            mode: Mode::Worker {
+                journal: fixture.journal.path().to_owned(),
+                session: common::id(4),
+                instance: common::instance().to_string(),
+            },
+        };
+        let result = test_run(mode(), std::env::current_exe).await;
+        assert_eq!(result.is_err(), fail);
+        assert!(
+            test_run(mode(), std::env::current_exe).await.is_err(),
+            "a worker cannot register twice"
+        );
+        let raw = fixture.raw().await;
+        sqlx::query("DROP TABLE workspace_providers")
+            .execute(&raw)
+            .await
+            .expect("fault");
+        assert!(test_run(mode(), std::env::current_exe).await.is_err());
+        raw.close().await;
+    }
+}

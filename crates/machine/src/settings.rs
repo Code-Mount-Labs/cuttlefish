@@ -129,6 +129,9 @@ impl Selector for Machine {
     ) -> Pin<Box<dyn Future<Output = Result<NodeId, orchestrator_coordinator::Error>> + Send + 'a>>
     {
         Box::pin(async move {
+            if context.candidates.len() == 1 {
+                return Ok(context.candidates[0].node_id);
+            }
             let saved = self
                 .setting("model")
                 .await
@@ -188,6 +191,7 @@ fn initialize_prompts_with(
     for (subdirectory, name, kind) in [
         ("router", "selection.md", Kind::Router),
         ("super-agent", "planner.md", Kind::Planner),
+        ("execution", "specialist.md", Kind::Specialist),
     ] {
         let parent = directory.join("prompts").join(subdirectory);
         let target = parent.join(name);

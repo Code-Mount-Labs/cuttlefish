@@ -9,6 +9,7 @@ rust-version = "1.96"
 publish = false
 
 [workspace.dependencies]
+base64 = "0.22.1"
 orchestrator-prompts = { path = "crates/prompts" }
 orchestrator-protocol = { path = "crates/protocol" }
 orchestrator-domain = { path = "crates/domain" }

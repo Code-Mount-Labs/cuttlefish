@@ -31,3 +31,7 @@ pub mod values;
 
 /// Installation-scoped remote access and tunnel provisioning.
 pub mod remote;
+
+pub mod execution;
+
+pub mod attachments;

@@ -284,6 +284,7 @@ async fn service_recovers_database_and_resumes_the_same_agent_on_restart() {
         .expect("identity")
         .registration
         .credential;
+    register_test_provider(&machine).await;
     run_service_to_synced(machine.clone(), address, &credential).await;
     drop(machine);
     let raw = PgPoolOptions::new()
@@ -334,10 +335,14 @@ async fn run_service_to_synced(
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
     loop {
         if let Ok(store) = machine.execution_store().await
-            && store
-                .nodes(credential)
-                .await
-                .is_ok_and(|nodes| nodes.len() == 1 && nodes[0].profile.is_some())
+            && store.nodes(credential).await.is_ok_and(|nodes| {
+                nodes.len() == 1
+                    && nodes[0].profile.as_ref().is_some_and(|profile| {
+                        profile.capabilities.contains(&Capability::local_provider(
+                            orchestrator_protocol::execution::LocalProvider::Codex,
+                        ))
+                    })
+            })
         {
             break;
         }
@@ -386,4 +391,25 @@ async fn execution_primary_rejects_a_read_only_database() {
         result,
         Err(Error::Invalid("primary_database_is_read_only"))
     ));
+}
+
+async fn register_test_provider(machine: &Machine) {
+    use orchestrator_node::execution::ExecutionConfig;
+    use orchestrator_protocol::execution::{LocalProvider, ProviderWorkspace};
+    let journal = machine.agent_journal().await.expect("journal");
+    journal
+        .configure_execution(&ExecutionConfig {
+            workspace: ProviderWorkspace {
+                workspace_id: Uuid::from_u128(5).try_into().expect("workspace"),
+                name: "Provider restart test".into(),
+                provider: LocalProvider::Codex,
+                allow_edits: false,
+            },
+            executable: std::env::current_exe().expect("test executable"),
+            directory: machine.directory().canonicalize().expect("directory"),
+            instructions: machine.directory().join("prompts/execution/specialist.md"),
+        })
+        .await
+        .expect("provider");
+    journal.close().await;
 }

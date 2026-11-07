@@ -52,3 +52,7 @@ pub enum Error {
     #[error("routing model unavailable or returned an invalid choice")]
     Model,
 }
+
+pub mod chat;
+
+pub mod attachments;

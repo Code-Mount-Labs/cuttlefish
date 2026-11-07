@@ -35,6 +35,12 @@ pub fn router_with_selector(store: Store, selector: Arc<dyn Selector>) -> Router
     Router::new()
         .route("/v1/sync", post(sync))
         .route("/v1/nodes", get(nodes))
+        .route(
+            "/v1/attachments",
+            post(upload_attachment).layer(DefaultBodyLimit::max(300_000)),
+        )
+        .route("/v1/attachments/{id}/chunks/{index}", get(attachment_chunk))
+        .route("/v1/workspaces", get(workspaces).post(advertise_workspaces))
         .route("/v1/events", get(events))
         .route("/v1/threads/{thread}", get(thread))
         .route("/v1/dispatch/poll", post(poll))
@@ -146,4 +152,39 @@ impl IntoResponse for Error {
         };
         (status, Json(serde_json::json!({"error":message}))).into_response()
     }
+}
+
+async fn workspaces(
+    State(store): State<Store>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<serde_json::Value>>, Error> {
+    Ok(Json(store.provider_workspaces(&token(&headers)?).await?))
+}
+async fn advertise_workspaces(
+    State(store): State<Store>,
+    headers: HeaderMap,
+    Json(items): Json<Vec<orchestrator_protocol::execution::ProviderWorkspace>>,
+) -> Result<Json<serde_json::Value>, Error> {
+    store
+        .advertise_workspaces(&token(&headers)?, &items)
+        .await?;
+    Ok(Json(serde_json::json!({"ok":true})))
+}
+
+async fn upload_attachment(
+    State(store): State<Store>,
+    headers: HeaderMap,
+    Json(chunk): Json<orchestrator_protocol::attachments::AttachmentChunk>,
+) -> Result<Json<serde_json::Value>, Error> {
+    let ready = store.put_attachment(&token(&headers)?, &chunk).await?;
+    Ok(Json(serde_json::json!({"ready":ready})))
+}
+async fn attachment_chunk(
+    State(store): State<Store>,
+    headers: HeaderMap,
+    Path((id, index)): Path<(orchestrator_protocol::ids::AttachmentId, u32)>,
+) -> Result<Json<orchestrator_protocol::attachments::AttachmentChunk>, Error> {
+    Ok(Json(
+        store.attachment_chunk(&token(&headers)?, id, index).await?,
+    ))
 }

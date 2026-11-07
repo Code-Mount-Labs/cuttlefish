@@ -197,7 +197,7 @@ async fn local_admin_can_sign_in_before_database_setup_and_after_restart() {
 #[cfg(feature = "docker-tests")]
 mod docker_live;
 
-mod http;
+pub(crate) mod http;
 mod registry;
 mod state_cases;
 

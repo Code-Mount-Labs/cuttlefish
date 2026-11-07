@@ -1497,6 +1497,7 @@ name = "orchestrator-coordinator"
 version = "0.2.0-alpha.2"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "clap",
  "orchestrator-agents",
  "orchestrator-domain",
@@ -1529,6 +1530,7 @@ name = "orchestrator-node"
 version = "0.2.0-alpha.2"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "clap",
  "orchestrator-agents",
  "orchestrator-domain",

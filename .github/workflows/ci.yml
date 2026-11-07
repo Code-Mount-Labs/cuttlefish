@@ -51,6 +51,12 @@ jobs:
           }
       - name: Unit and integration tests
         run: cargo test --workspace --all-targets --locked
+      - name: Browser chat contracts
+        if: runner.os == 'Linux'
+        run: |
+          export BROWSER_BIN="$(command -v google-chrome)"
+          node tests/web/chat.mjs
+          CHAT_TEST_BASE=/i/00000000-0000-0000-0000-000000000123 node tests/web/chat.mjs
       - name: Documentation tests
         run: cargo test --workspace --doc --locked
       - name: Build documentation

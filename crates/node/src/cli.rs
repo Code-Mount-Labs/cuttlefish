@@ -252,13 +252,27 @@ async fn run_with_io<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(
         } => {
             let journal = Journal::attach(&journal).await?;
             let identity = journal.identity();
-            worker::run(
-                &journal,
-                session,
-                &instance,
-                FakeAgent::new(identity.group_id, identity.node_id),
-            )
-            .await
+            if let Some(config) = journal.execution_config(session).await? {
+                worker::run(
+                    &journal,
+                    session,
+                    &instance,
+                    crate::local_provider::LocalAgent::new(
+                        journal.clone(),
+                        instance.clone(),
+                        config,
+                    ),
+                )
+                .await
+            } else {
+                worker::run(
+                    &journal,
+                    session,
+                    &instance,
+                    FakeAgent::new(identity.group_id, identity.node_id),
+                )
+                .await
+            }
         }
         Mode::Stop { state_dir } => {
             Journal::attach(&state_dir.join("node.sqlite"))

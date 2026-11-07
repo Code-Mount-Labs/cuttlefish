@@ -112,6 +112,7 @@ pub(super) async fn finish(f: &Fixture, token: &NodeToken, view: &DispatchView, 
         AgentAction::Cancel => AgentEventKind::Cancelled,
     };
     let event = AgentEvent {
+        artifacts: Vec::new(),
         version: command.version,
         command_id: command.command_id,
         group_id: command.group_id,

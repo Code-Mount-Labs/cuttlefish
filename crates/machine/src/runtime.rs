@@ -150,7 +150,7 @@ async fn run_agent(
     )
     .await
     .map_err(|_| Error::Dependency("agent_journal_unavailable"))?;
-    let profile = NodeProfile {
+    let mut profile = NodeProfile {
         platform: native_platform(std::env::consts::OS),
         capabilities: Capability::native(),
         capacity: 4,
@@ -178,6 +178,14 @@ async fn run_agent(
         }
         let remote = Remote::new(&origin, &identity.registration.credential)
             .map_err(|_| Error::Dependency("invalid_router_configuration"))?;
+        if let Ok(configs) = runtime.journal().executions().await {
+            for config in configs {
+                profile
+                    .capabilities
+                    .insert(Capability::local_provider(config.workspace.provider));
+            }
+        }
+        let _ = remote.advertise_providers(runtime.journal()).await;
         ready.store(
             remote.cycle(&mut runtime, &profile).await.is_ok(),
             Ordering::SeqCst,

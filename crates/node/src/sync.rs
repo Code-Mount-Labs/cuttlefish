@@ -58,6 +58,7 @@ impl Remote {
             .acknowledge_dispatch(&poll.accepted)
             .await?;
         if let Some(command) = batch.command {
+            self.download_inputs(runtime.journal(), &command).await?;
             runtime.submit(&command).await?;
             runtime
                 .journal()
@@ -172,6 +173,7 @@ impl Remote {
         journal: &Journal,
         profile: &NodeProfile,
     ) -> Result<usize, NodeError> {
+        self.upload_artifacts(journal).await?;
         let report = journal.sync_report(profile.clone()).await?;
         report.validate()?;
         let expected: Vec<i64> = report.events.iter().map(|e| e.sequence).collect();

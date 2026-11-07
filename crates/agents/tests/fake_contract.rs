@@ -23,6 +23,7 @@ where
 
 fn message(number: u128, text: &str) -> Message {
     Message {
+        attachments: Vec::new(),
         id: id(number),
         text: text.to_owned().try_into().expect("fixture text"),
     }
@@ -82,6 +83,7 @@ async fn follows_up_in_the_original_session_and_preserves_wire_context() {
     assert_eq!(
         event,
         AgentEvent {
+            artifacts: Vec::new(),
             version: first.version,
             command_id: first.command_id,
             group_id: first.group_id,

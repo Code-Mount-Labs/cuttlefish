@@ -6,7 +6,7 @@ use axum::{
 };
 use serde_json::{Value, json};
 use tower::ServiceExt;
-async fn request(
+pub(crate) async fn request(
     app: &Router,
     path: &str,
     body: Option<Value>,
@@ -49,7 +49,7 @@ async fn request(
         cookie,
     )
 }
-async fn sign_in(app: &Router, machine: &Machine) -> String {
+pub(crate) async fn sign_in(app: &Router, machine: &Machine) -> String {
     let bootstrap = machine.bootstrap_token().expect("token");
     let (status,_,cookie)=request(app,"/api/local/setup",Some(json!({"token":bootstrap.expose(),"username":"operator","password":"a sufficiently long secret"})),None,Some("http://127.0.0.1:8080")).await;
     assert_eq!(status, StatusCode::OK);

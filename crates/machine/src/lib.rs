@@ -2,6 +2,7 @@
 //! on the user's machine; the dashboard starts before `PostgreSQL` is configured.
 
 pub mod auth;
+pub mod chat;
 pub mod cli;
 pub mod connector;
 pub mod dependencies;

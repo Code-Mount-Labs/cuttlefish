@@ -11,11 +11,11 @@ command names remain stable for compatibility with current scripts and journals.
 
 **Implemented: milestones 1–4 and the first super-agent collaboration increment.** This repository contains the shared protocol,
 pure task lifecycle, asynchronous adapter contract, and a node runtime with a
-SQLite journal and supervised specialist processes. Each specialist currently
-runs the deterministic fake adapter. A separate coordination service authenticates
+SQLite journal and supervised specialist processes. Specialists can use the deterministic fake adapter or an explicitly configured
+local Codex/Claude Code adapter. A separate coordination service authenticates
 nodes and stores shared routing context in PostgreSQL. It has no execution powers.
 It now makes constrained LLM routing decisions and delivers tasks with durable
-thread/session affinity and conservative failover. Real coding providers remain future work. A separate JSON-first hosted platform
+thread/session affinity and conservative failover. The current development increment adds [chat, attachments, and local providers](docs/chat-and-providers.md). A separate JSON-first hosted platform
 now provides accounts, groups, and the installation directory. The node can now plan goals, delegate child tasks,
 track progress, and propose catalog-backed learning with human approval.
 See [Super-agent collaboration](#super-agent-collaboration) and the
@@ -24,9 +24,9 @@ See [Super-agent collaboration](#super-agent-collaboration) and the
 The first Octop-review improvement adds [durable runtime permissions and provider
 session bindings](docs/runtime-permissions.md): exact human approvals, local
 reviewer credentials, conservative reply delivery and restart recovery. This is
-the adapter contract and local review surface; the production worker still uses
-the fake adapter. A real provider, remote review UI and permission synchronization
-to the router are subsequent integrations.
+the adapter contract and local review surface. The new local provider adapters
+reuse durable session bindings; interactive provider permission callbacks and
+a remote review UI remain subsequent integrations.
 
 ## Hosted platform
 
@@ -57,7 +57,8 @@ enrollment code. Linux and macOS binaries support ARM64 and x86-64. Windows
 installation is deferred. This alpha runs in the foreground; automatic OS service
 registration for the main process is not yet included. Managed remote access installs
 its own recoverable connector service. Choose local-only, Cuttlefish-managed HTTPS,
-or an existing HTTPS address during setup; see [remote access](docs/remote-access.md). Real specialist providers remain future work.
+or an existing HTTPS address during setup; see [remote access](docs/remote-access.md).
+This published alpha predates the chat/provider development increment.
 See [local setup and database choices](docs/local-installation.md).
 
 ## Workspace

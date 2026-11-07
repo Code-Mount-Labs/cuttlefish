@@ -73,6 +73,7 @@ pub fn instance() -> Uuid {
 
 pub fn message(value: u128) -> Message {
     Message {
+        attachments: Vec::new(),
         id: id(value),
         text: format!("message {value}").try_into().expect("fixture text"),
     }
@@ -117,6 +118,7 @@ pub fn cancel(value: u128) -> AgentCommand {
 pub fn outcome(command: &AgentCommand) -> CommandOutcome {
     CommandOutcome::Completed {
         event: Box::new(AgentEvent {
+            artifacts: Vec::new(),
             version: command.version,
             command_id: command.command_id,
             group_id: command.group_id,

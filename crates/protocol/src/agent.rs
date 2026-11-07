@@ -11,6 +11,9 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Message {
+    /// Uploaded files, referenced without repeating their contents in prompts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<crate::attachments::Attachment>,
     /// Stable identity supplied by the application.
     pub id: MessageId,
     /// Original user or supervisor text.
@@ -86,6 +89,9 @@ pub enum AgentEventKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentEvent {
+    /// Immutable generated artifacts uploaded before publishing this event.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artifacts: Vec<crate::attachments::Attachment>,
     /// Wire contract version.
     pub version: ProtocolVersion,
     /// Command that produced this result.

@@ -58,15 +58,49 @@ async fn execute_command<A: Agent>(
 ) -> Result<CommandOutcome, NodeError> {
     // Keep liveness independent of adapter latency. Cancel this heartbeat loop
     // before persisting completion, so it cannot race a confirmed session stop.
-    tokio::select! {
-        result = agent.execute(command) => Ok(match result {
-            Ok(event) => CommandOutcome::Completed { event: Box::new(event) },
-            Err(error) => CommandOutcome::Rejected { reason: error.to_string() },
-        }),
-        result = keep_alive(journal, command.target.session_id, instance) => match result {
+    let result = tokio::select! {
+        result = agent.execute(command) => result,
+        result = keep_alive(journal, command.target.session_id, instance) => return match result {
             Err(error) => Err(error),
             Ok(never) => match never {},
         },
+    };
+    finish_execution(
+        journal,
+        instance,
+        command,
+        result.map_err(|error| error.to_string()),
+        agent.failure_is_uncertain(),
+    )
+    .await
+}
+
+async fn finish_execution(
+    journal: &Journal,
+    instance: &str,
+    command: &AgentCommand,
+    result: Result<orchestrator_protocol::agent::AgentEvent, String>,
+    uncertain: bool,
+) -> Result<CommandOutcome, NodeError> {
+    match result {
+        Ok(event) => Ok(CommandOutcome::Completed {
+            event: Box::new(event),
+        }),
+        Err(error) => {
+            if uncertain {
+                journal
+                    .interrupted(
+                        command.target.session_id,
+                        instance,
+                        "provider failed; external effects may have occurred",
+                    )
+                    .await?;
+                return Err(NodeError::Rejected(
+                    "provider execution uncertain; automatic replay refused",
+                ));
+            }
+            Ok(CommandOutcome::Rejected { reason: error })
+        }
     }
 }
 
@@ -80,3 +114,7 @@ async fn keep_alive(
         journal.heartbeat(session_id, instance).await?;
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/internal/worker.rs"]
+mod tests;

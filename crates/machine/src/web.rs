@@ -5,7 +5,7 @@ use crate::{
 use axum::{
     Json, Router,
     body::Body,
-    extract::{DefaultBodyLimit, State},
+    extract::{DefaultBodyLimit, Path, State},
     http::{HeaderMap, HeaderValue, Request, StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
@@ -52,6 +52,27 @@ pub fn router(machine: Machine) -> Router {
         .route("/api/local/database", post(database))
         .route("/api/local/database/retry", post(retry_database))
         .route("/api/local/model", post(model))
+        .route(
+            "/api/local/attachments",
+            post(upload_attachment).layer(DefaultBodyLimit::max(300_000)),
+        )
+        .route(
+            "/api/local/attachments/{id}/chunks/{index}",
+            get(attachment_chunk),
+        )
+        .route("/api/local/providers", get(providers))
+        .route(
+            "/api/local/workspaces",
+            get(local_workspaces).post(create_workspace),
+        )
+        .route("/api/local/chat/workspaces", get(chat_workspaces))
+        .route(
+            "/api/local/chat",
+            get(chats)
+                .post(send_chat)
+                .layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route("/api/local/chat/{thread}", get(chat))
         .fallback(execution)
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(axum::middleware::map_response(headers))
@@ -61,7 +82,7 @@ async fn headers(mut response: Response) -> Response {
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response.headers_mut().insert(header::CONTENT_SECURITY_POLICY,HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"));
+    response.headers_mut().insert(header::CONTENT_SECURITY_POLICY,HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"));
     response.headers_mut().insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
@@ -166,7 +187,7 @@ async fn configuration(
     authorize(&machine, &headers, false).await?;
     let identity = machine.identity().await?;
     Ok(Json(
-        json!({"group_id":identity.registration.group_id,"installation_id":identity.registration.installation_id,"name":identity.registration.name,"role":identity.registration.role,"database":machine.status().await?,"model":machine.model_status().await?,"remote":machine.remote_status().await?}),
+        json!({"features":{"chat":true,"attachments":true},"group_id":identity.registration.group_id,"installation_id":identity.registration.installation_id,"name":identity.registration.name,"role":identity.registration.role,"database":machine.status().await?,"model":machine.model_status().await?,"remote":machine.remote_status().await?}),
     ))
 }
 async fn database(
@@ -286,4 +307,76 @@ async fn remote_select(
 }
 async fn remote_proof(State(machine): State<Machine>) -> Result<Json<serde_json::Value>, Error> {
     Ok(Json(machine.remote_proof().await?))
+}
+
+async fn providers(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, Error> {
+    authorize(&machine, &headers, false).await?;
+    Ok(Json(json!(machine.providers().await)))
+}
+async fn local_workspaces(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, Error> {
+    authorize(&machine, &headers, false).await?;
+    Ok(Json(json!(machine.local_workspaces().await?)))
+}
+async fn create_workspace(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+    Json(workspace): Json<orchestrator_protocol::execution::ProviderWorkspace>,
+) -> Result<Json<serde_json::Value>, Error> {
+    authorize(&machine, &headers, true).await?;
+    machine.create_workspace(workspace).await?;
+    Ok(Json(json!({"ok":true})))
+}
+async fn chat_workspaces(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, Error> {
+    authorize(&machine, &headers, false).await?;
+    Ok(Json(json!(machine.chat_workspaces().await?)))
+}
+async fn chats(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, Error> {
+    authorize(&machine, &headers, false).await?;
+    Ok(Json(json!(machine.chats().await?)))
+}
+async fn chat(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+    Path(thread): Path<orchestrator_protocol::ids::ThreadId>,
+) -> Result<Json<serde_json::Value>, Error> {
+    authorize(&machine, &headers, false).await?;
+    Ok(Json(json!(machine.chat(thread).await?)))
+}
+async fn send_chat(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+    Json(request): Json<orchestrator_protocol::routing::RouteRequest>,
+) -> Result<Json<serde_json::Value>, Error> {
+    authorize(&machine, &headers, true).await?;
+    Ok(Json(json!(machine.send_chat(request).await?)))
+}
+
+async fn upload_attachment(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+    Json(chunk): Json<orchestrator_protocol::attachments::AttachmentChunk>,
+) -> Result<Json<serde_json::Value>, Error> {
+    authorize(&machine, &headers, true).await?;
+    let ready = machine.upload_attachment(&chunk).await?;
+    Ok(Json(json!({"ready":ready})))
+}
+async fn attachment_chunk(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+    Path((id, index)): Path<(orchestrator_protocol::ids::AttachmentId, u32)>,
+) -> Result<Json<orchestrator_protocol::attachments::AttachmentChunk>, Error> {
+    authorize(&machine, &headers, false).await?;
+    Ok(Json(machine.attachment_chunk(id, index).await?))
 }

@@ -52,3 +52,8 @@ extern crate self as orchestrator_node;
 #[cfg(test)]
 #[path = "../tests/common/mod.rs"]
 pub(crate) mod test_support;
+
+pub mod execution;
+pub mod local_provider;
+
+pub mod attachments;

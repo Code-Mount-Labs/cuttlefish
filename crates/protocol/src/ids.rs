@@ -103,3 +103,16 @@ impl InstallationId {
         Self(Uuid::new_v4())
     }
 }
+
+resource_id!(
+    AttachmentId,
+    "An immutable uploaded or generated file identity."
+);
+
+impl AttachmentId {
+    /// Generate an immutable file identity without a fallible parsing round trip.
+    #[must_use]
+    pub fn random() -> Self {
+        Self(Uuid::new_v4())
+    }
+}

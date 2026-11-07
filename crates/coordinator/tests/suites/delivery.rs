@@ -154,7 +154,8 @@ async fn runtime_permission_waits_cannot_publish_completion_or_authorize_failove
             .is_none()
     );
     // Missing permission storage is also a hard failure, not permission to complete.
-    let raw = sqlx::SqlitePool::connect(&format!("sqlite://{}", journal.path().display()))
+    let raw = sqlx::sqlite::SqlitePoolOptions::new()
+        .connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(journal.path()))
         .await
         .expect("test connection");
     sqlx::query("DROP TABLE runtime_permissions")

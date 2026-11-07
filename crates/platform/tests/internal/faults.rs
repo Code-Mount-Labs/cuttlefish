@@ -127,7 +127,7 @@ async fn fail_second_checkout(url: &str) -> PgPool {
     let connect_unavailable = unavailable.clone();
     PgPoolOptions::new()
         .max_connections(1)
-        .acquire_timeout(Duration::from_millis(50))
+        .acquire_timeout(Duration::from_secs(5))
         .after_connect(move |_, _| {
             let unavailable = connect_unavailable.load(Ordering::SeqCst);
             Box::pin(async move {

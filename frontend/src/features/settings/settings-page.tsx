@@ -494,7 +494,7 @@ export function SettingsPage({
           <ChangePasswordForm scope="local" onChanged={onPasswordChanged} />
         </Section>
       )}
-      <Remote key={config.remote.revision} remote={config.remote} />
+      <Remote remote={config.remote} />
       {config.role !== "router" && config.features?.chat && <Workspaces />}
       {config.role !== "agent" && (
         <>

@@ -41,6 +41,15 @@ fn cli_parses_roles_of_setup_resume_and_dependency_installation() {
         vec!["cuttlefish", "setup"],
         vec!["cuttlefish", "serve"],
         vec!["cuttlefish", "install-docker"],
+        vec!["cuttlefish", "service", "install"],
+        vec!["cuttlefish", "service", "restart"],
+        vec![
+            "cuttlefish",
+            "service",
+            "status",
+            "--listen",
+            "127.0.0.1:9876",
+        ],
         vec![
             "cuttlefish",
             "--state-dir",
@@ -574,4 +583,54 @@ async fn setup_persists_managed_choice_and_reports_journal_failures() {
         machine.close().await;
     }
     server.abort();
+}
+
+#[tokio::test]
+async fn service_cli_does_not_create_or_replace_a_missing_installation() {
+    let root = tempfile::tempdir().expect("root");
+    let missing = root.path().join("missing");
+    for (state_dir, home) in [
+        (
+            Some(missing.clone()),
+            Some(root.path().as_os_str().to_owned()),
+        ),
+        (None, Some(missing.as_os_str().to_owned())),
+        (None, None),
+    ] {
+        assert!(
+            run_with(
+                Cli {
+                    state_dir,
+                    command: Mode::Service {
+                        action: crate::service::ServiceAction::Status,
+                        listen: "127.0.0.1:8080".parse().expect("address")
+                    }
+                },
+                home,
+                std::env::current_exe,
+                &mut &b""[..],
+                &mut Vec::new()
+            )
+            .await
+            .is_err()
+        );
+    }
+    assert!(!missing.exists());
+    assert!(
+        run_with(
+            Cli {
+                state_dir: Some(root.path().to_owned()),
+                command: Mode::Service {
+                    action: crate::service::ServiceAction::Status,
+                    listen: "127.0.0.1:8080".parse().expect("address")
+                }
+            },
+            None,
+            || Err(io::Error::other("executable unavailable")),
+            &mut &b""[..],
+            &mut Vec::new()
+        )
+        .await
+        .is_err()
+    );
 }

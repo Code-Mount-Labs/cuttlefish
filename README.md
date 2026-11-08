@@ -49,7 +49,7 @@ PostgreSQL on the machine. Setup can be deferred and completed later.
 Create a group on the staging website, choose **Connect a machine**, then run:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.5/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.6/install.sh | sh
 ```
 
 The installer verifies release checksums and asks for your group ID and one-use

@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory(prefix='cuttlefish-release-') as folder:
     assets.append(str(sums))
     hashes[sums.name] = hashlib.sha256(sums.read_bytes()).hexdigest()
     notes = root / 'notes.md'
-    notes.write_text(f'''Cuttlefish {tag} includes a refined chat dashboard, independent scheduled Routines, reusable Workflows, password changes, and local Codex/Claude Code providers over managed HTTPS. It also preserves destination focus when closing the mobile navigation drawer. It fixes completed workflow sessions occupying worker capacity: durable cleanup now releases each workflow session while preserving its results.
+    notes.write_text(f'''Cuttlefish {tag} includes a refined chat dashboard, independent scheduled Routines, reusable Workflows, password changes, and local Codex/Claude Code providers over managed HTTPS. It adds macOS background login startup and fixes sign-in, setup, and settings forms resetting during background checks. It also preserves destination focus when closing the mobile navigation drawer. It fixes completed workflow sessions occupying worker capacity: durable cleanup now releases each workflow session while preserving its results.
 
 Create a group at https://platform-production-105c.up.railway.app, choose **Connect a machine**, then run:
 
@@ -79,7 +79,7 @@ To update an existing installation without starting setup again, run the same in
 
 Linux and macOS: ARM64 and x86-64. All archives are checksum-verified. [Build verification]({run['html_url']}) and [Rust CI]({check['html_url']}) passed, including the unchanged 100% line, function and region coverage gate.
 
-This alpha uses Cuttlefish staging. The main process runs in the foreground; the connector has its own OS service. Public relay access supports JSON polling; streaming/WebSockets and Windows installation remain deferred. Routines use elapsed intervals rather than calendar cron; Plugins is reserved for future integrations.
+This alpha uses Cuttlefish staging. The main process runs in the foreground by default. On macOS, stop it with Ctrl+C and run `cuttlefish service install` to start in the background and after login; use `cuttlefish service restart` after future updates. The connector has its own OS service. Public relay access supports JSON polling; streaming/WebSockets and Windows installation remain deferred. Routines use elapsed intervals rather than calendar cron; Plugins is reserved for future integrations.
 ''')
     release = next((item for item in api('releases?per_page=100') if item['tag_name'] == tag), None)
     if release is None:

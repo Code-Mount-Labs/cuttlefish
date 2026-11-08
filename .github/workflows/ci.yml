@@ -64,8 +64,13 @@ jobs:
           sh -n install.sh
           sh -n install/docker.sh
           sh -n install/relay.sh
+          sh -n install/service-macos.sh
+          python3 tests/install/service.py
           bash -n deploy/relay/entrypoint.sh
           python3 experiments/relay/service_smoke.py
+      - name: Verify real macOS login service lifecycle
+        if: runner.os == 'macOS'
+        run: python3 tests/install/service-macos-live.py
       - name: Validate PowerShell installers
         if: runner.os == 'Windows'
         shell: pwsh

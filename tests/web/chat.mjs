@@ -179,6 +179,8 @@ const browser = spawn(
   browserPath,
   [
     "--headless",
+    "--disable-background-timer-throttling",
+    "--disable-renderer-backgrounding",
     "--remote-debugging-port=0",
     "--user-data-dir=" + join(directory, "profile"),
     "--no-first-run",
@@ -485,8 +487,16 @@ try {
     await evaluate("document.querySelectorAll('#messages .message').length"),
     0,
   );
+  await evaluate("document.querySelector('input[name=username]').focus()");
+  await cmd("Input.insertText", {text:"draft-user"});
+  await evaluate("document.querySelector('input[name=password]').focus(); window.passwordField=document.activeElement; void 0");
+  await cmd("Input.insertText", {text:"unfinished-password"});
+  // Cross two of the previous five-second refresh intervals while typing.
+  await new Promise(resolve => setTimeout(resolve, 11000));
+  assert.equal(await evaluate("document.querySelector('input[name=password]')===window.passwordField && document.activeElement===window.passwordField && window.passwordField.value==='unfinished-password'"),true,"sign-in stays mounted and focused across polling intervals");
+  assert.equal(await evaluate("document.querySelector('input[name=username]').value"),"draft-user");
   console.log(
-    "PASS: workflows, independent routines, navigation, attachments, durable retries, safe Markdown, responsive layout, and sign-out cleanup",
+    "PASS: workflows, independent routines, navigation, attachments, durable retries, safe Markdown, responsive layout, sign-out cleanup, and uninterrupted sign-in drafts",
   );
 } finally {
   ws?.close();

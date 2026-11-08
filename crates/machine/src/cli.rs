@@ -46,6 +46,13 @@ enum Mode {
     },
     /// Install/start Docker with interactive OS authorization if needed.
     InstallDocker,
+    /// Manage background startup for this installation (macOS).
+    Service {
+        #[command(subcommand)]
+        action: crate::service::ServiceAction,
+        #[arg(long, global = true, default_value = "127.0.0.1:8080")]
+        listen: SocketAddr,
+    },
 }
 /// Run setup or an existing local installation.
 ///
@@ -70,6 +77,23 @@ async fn run_with(
 ) -> Result<(), Error> {
     let (platform, listen) = match cli.command {
         Mode::InstallDocker => return crate::dependencies::install_docker(true).await,
+        Mode::Service { action, listen } => {
+            let directory = cli
+                .state_dir
+                .or_else(|| {
+                    home.as_ref()
+                        .map(|home| PathBuf::from(home).join(".cuttlefish"))
+                })
+                .ok_or(Error::Invalid("provide --state-dir"))?;
+            return crate::service::manage(
+                action,
+                &directory,
+                &executable()?,
+                listen,
+                home.as_deref(),
+            )
+            .await;
+        }
         Mode::Setup { platform, listen } => (Some(platform), listen),
         Mode::Serve { listen } => (None, listen),
     };

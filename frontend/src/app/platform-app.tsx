@@ -1,9 +1,10 @@
+import { readSession } from "../lib/query";
 import { ChangePasswordForm } from "../features/auth/change-password-form";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "../lib/schema";
 import { BookOpen, Folder, LogOut, UserRound } from "lucide-react";
-import { ApiError, errorMessage, request } from "../lib/api";
+import { errorMessage, request } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Sidebar } from "../components/sidebar";
 import { AuthForm } from "../features/auth/auth-form";
@@ -17,8 +18,13 @@ export function PlatformApp() {
   const session = useQuery({
     queryKey: ["session"],
     queryFn: ({ signal }) =>
-      request("/api/v1/auth/session", z.unknown(), { signal }),
-    refetchInterval: 15000,
+      readSession(async () => {
+        await request("/api/v1/auth/session", z.unknown(), { signal });
+        return true;
+      }),
+    refetchInterval: (query) => (query.state.data === null ? false : 15000),
+    refetchOnWindowFocus: (query) => query.state.data !== null,
+    refetchOnReconnect: (query) => query.state.data !== null,
   });
   async function login(body: { username: string; password: string }) {
     await request(
@@ -45,7 +51,7 @@ export function PlatformApp() {
       setError(errorMessage(e));
     }
   }
-  if (session.error instanceof ApiError && session.error.status === 401)
+  if (session.data === null)
     return (
       <AuthForm
         notice={notice}
@@ -60,7 +66,7 @@ export function PlatformApp() {
         <p role="status">Opening workspace…</p>
       </main>
     );
-  if (session.error)
+  if (session.error && session.data === undefined)
     return (
       <main className="auth-page">
         <p role="alert">{errorMessage(session.error)}</p>
@@ -115,9 +121,9 @@ export function PlatformApp() {
         </div>
       </Sidebar>
       <div className="platform-content">
-        {error && (
+        {(error || session.error) && (
           <p role="alert" className="error">
-            {error}
+            {error || errorMessage(session.error)}
           </p>
         )}
         {page === "groups" ? (

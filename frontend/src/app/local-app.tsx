@@ -1,8 +1,9 @@
+import { readSession } from "../lib/query";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "../lib/schema";
-import { ApiError, errorMessage, local } from "../lib/api";
-import { configSchema } from "../lib/contracts";
+import { errorMessage, local } from "../lib/api";
+import { configSchema, type Config } from "../lib/contracts";
 import { savePending } from "../lib/pending";
 import { AuthForm } from "../features/auth/auth-form";
 import { ChatPage } from "../features/chat/chat-page";
@@ -10,7 +11,6 @@ import { SettingsPage } from "../features/settings/settings-page";
 import { Button } from "../components/ui/button";
 export function LocalApp() {
   const cache = useQueryClient(),
-    [settings, setSettings] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
   const status = useQuery({
@@ -20,9 +20,12 @@ export function LocalApp() {
   });
   const config = useQuery({
     queryKey: ["config"],
-    queryFn: ({ signal }) => local("config", configSchema, { signal }),
+    queryFn: ({ signal }) =>
+      readSession(() => local("config", configSchema, { signal })),
     enabled: !!status.data,
-    refetchInterval: 5000,
+    refetchInterval: (query) => (query.state.data === null ? false : 5000),
+    refetchOnWindowFocus: (query) => query.state.data !== null,
+    refetchOnReconnect: (query) => query.state.data !== null,
   });
   async function login(body: {
     username: string;
@@ -44,7 +47,6 @@ export function LocalApp() {
     cache.clear();
     await status.refetch();
     await config.refetch();
-    setSettings(false);
     setError("");
   }
   async function logout() {
@@ -55,7 +57,7 @@ export function LocalApp() {
       setError(errorMessage(e));
     }
   }
-  if (config.error instanceof ApiError && config.error.status === 401)
+  if (config.data === null)
     return (
       <AuthForm
         setup={!status.data?.initialized}
@@ -84,10 +86,35 @@ export function LocalApp() {
         )}
       </main>
     );
-  const canChat =
-    config.data.role !== "agent" &&
-    config.data.features?.chat === true &&
-    config.data.database.state === "ready";
+  return (
+    <LocalWorkspace
+      config={config.data}
+      error={error}
+      onLogout={() => void logout()}
+      onPasswordChanged={() => {
+        setNotice("Password changed. Sign in with your new password.");
+        void clearSession();
+      }}
+    />
+  );
+}
+
+function LocalWorkspace({
+  config,
+  error,
+  onLogout,
+  onPasswordChanged,
+}: {
+  config: Config;
+  error: string;
+  onLogout: () => void;
+  onPasswordChanged: () => void;
+}) {
+  const hasChat = config.role !== "agent" && config.features?.chat === true;
+  const canChat = hasChat && config.database.state === "ready";
+  // Opening setup stays on setup when provisioning finishes. Background state
+  // updates must not navigate away from an unfinished settings form.
+  const [settings, setSettings] = useState(!canChat);
   return (
     <>
       {error && (
@@ -95,23 +122,20 @@ export function LocalApp() {
           {error}
         </p>
       )}
-      {canChat && (
+      {hasChat && (
         <ChatPage
-          config={config.data}
-          active={!settings}
+          config={config}
+          active={!settings && canChat}
           onSettings={() => setSettings(true)}
-          onLogout={() => void logout()}
+          onLogout={onLogout}
         />
       )}
       {(settings || !canChat) && (
         <SettingsPage
-          config={config.data}
+          config={config}
           onBack={canChat ? () => setSettings(false) : undefined}
-          onLogout={() => void logout()}
-          onPasswordChanged={() => {
-            setNotice("Password changed. Sign in with your new password.");
-            void clearSession();
-          }}
+          onLogout={onLogout}
+          onPasswordChanged={onPasswordChanged}
         />
       )}
     </>

@@ -7,7 +7,7 @@ registered router; agent-only enrollment requires that router to be ready.
 ## Install a release
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.5/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.6/install.sh | sh
 ```
 
 Linux and macOS releases include ARM64 and x86-64 binaries. Windows installation
@@ -37,9 +37,61 @@ state directory and listener settings.
 
 The shell bootstrap downloads versioned, checksum-verified release archives.
 Windows scripts remain experimental and are not a supported installation path.
-The main Cuttlefish process runs in the foreground; automatic startup for that
-process is not yet implemented. The managed relay connector has its own native
-OS service and survives supervisor restart.
+Cuttlefish runs in the foreground by default. On macOS, the optional login
+service below runs it in the background. The managed relay connector has its
+own native OS service and survives supervisor restart.
+
+## macOS background startup
+
+After completing setup, stop the foreground Cuttlefish process with Ctrl+C, then
+install a service as your normal macOS account (do not use sudo):
+
+```sh
+"$HOME/.local/share/cuttlefish/bin/cuttlefish" --state-dir "$HOME/.cuttlefish" service install --listen 127.0.0.1:8080
+```
+
+This starts the existing installation now and after you log in to your Mac.
+You can close the terminal. It uses the same state directory, database, provider
+sign-ins, and managed address. It does not run before login, while logged out,
+or while the Mac is asleep. A router that must always be available belongs on
+an always-on machine.
+
+```sh
+# Check the service and dashboard
+"$HOME/.local/share/cuttlefish/bin/cuttlefish" --state-dir "$HOME/.cuttlefish" service status
+
+# Restart after updating the application binaries
+"$HOME/.local/share/cuttlefish/bin/cuttlefish" --state-dir "$HOME/.cuttlefish" service restart
+
+# Stop now and disable login startup until service start is run
+"$HOME/.local/share/cuttlefish/bin/cuttlefish" --state-dir "$HOME/.cuttlefish" service stop
+
+# Start and re-enable login startup
+"$HOME/.local/share/cuttlefish/bin/cuttlefish" --state-dir "$HOME/.cuttlefish" service start
+
+# Remove this startup definition, preserving all application data
+"$HOME/.local/share/cuttlefish/bin/cuttlefish" --state-dir "$HOME/.cuttlefish" service uninstall
+```
+
+Each canonical state directory gets a distinct LaunchAgent in
+`~/Library/LaunchAgents/com.cuttlefish.app.<state-hash>.plist`. Startup commands
+use the listener saved at installation, including custom ports. To change it,
+run `service install --listen <address>` again. The installer refuses to take
+over a port already occupied by a foreground or unrelated process.
+
+Logs are private files in `<state-dir>/service/stdout.log` and `stderr.log`.
+The service preserves the installing account's `HOME`, `PATH`, and configured
+`CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `DOCKER_CONFIG`, and `XDG_CONFIG_HOME` paths.
+It does not copy arbitrary environment variables or API keys into its definition.
+Configure model keys through the local dashboard. Changing provider/config paths
+later requires running `service install` again from the intended environment.
+Managed PostgreSQL recovery uses the existing Docker startup path; Docker
+Desktop may still require its own first-run authorization.
+
+The service retries crash recovery through launchd. Removing it does not remove
+PostgreSQL, the relay connector, provider installations, journals, or workspaces.
+Existing specialist processes retain their independent lifetime across a
+supervisor restart.
 
 ## Passwords
 

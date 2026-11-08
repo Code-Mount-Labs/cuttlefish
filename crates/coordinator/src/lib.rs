@@ -61,3 +61,5 @@ pub mod attachments;
 pub mod automations;
 
 mod agent_tools;
+
+pub mod recovery;

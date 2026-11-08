@@ -186,7 +186,7 @@ async fn check_conversation(machine: &Machine, app: &axum::Router, cookie: &str)
     let result = machine.send_chat(route.clone()).await.expect("idempotent");
     assert_eq!(
         machine.chat(route.thread_id).await.expect("history"),
-        vec![result]
+        vec![result.clone()]
     );
     for path in [
         "/api/local/chat".to_owned(),
@@ -199,6 +199,7 @@ async fn check_conversation(machine: &Machine, app: &axum::Router, cookie: &str)
             StatusCode::OK
         );
     }
+    check_recovery_ui(machine, app, cookie, &result).await;
     let mut invalid = route.clone();
     if let RouteAction::Start { capabilities, .. } = &mut invalid.action {
         capabilities.clear();
@@ -873,4 +874,190 @@ async fn check_invalid_workspace(app: &axum::Router, cookie: &str) {
         .0
         .is_success()
     );
+}
+
+async fn check_recovery_ui(
+    machine: &Machine,
+    app: &axum::Router,
+    cookie: &str,
+    turn: &DispatchView,
+) {
+    use orchestrator_protocol::recovery::RecoveryAction;
+    let thread = turn.request.thread_id;
+    let path = format!("/api/local/chat/{thread}/recovery");
+    let action = RecoveryAction::Inspect {
+        id: Uuid::new_v4().try_into().expect("id"),
+        command_id: turn.command.command_id,
+    };
+    assert_eq!(
+        request(app, &path, None, None, None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(
+            app,
+            &path,
+            Some(json!(action)),
+            None,
+            Some("http://127.0.0.1:8080")
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(
+            app,
+            &path,
+            Some(json!(action)),
+            Some(cookie),
+            Some("https://evil.example")
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(
+            app,
+            &path,
+            Some(json!(action)),
+            Some(cookie),
+            Some("http://127.0.0.1:8080")
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    check_recovery_approval(machine, app, cookie, turn, &action, &path).await;
+}
+async fn check_recovery_approval(
+    machine: &Machine,
+    app: &axum::Router,
+    cookie: &str,
+    turn: &DispatchView,
+    action: &orchestrator_protocol::recovery::RecoveryAction,
+    path: &str,
+) {
+    use orchestrator_protocol::{
+        activity::{ActivityPhase, ExecutionActivity},
+        recovery::{Checkpoint, RecoveryAction, RecoveryState},
+    };
+    let thread = turn.request.thread_id;
+    let (store, token) = machine.chat_store().await.expect("store");
+    store
+        .poll_dispatch(
+            &token,
+            &DispatchPoll {
+                workspaces: vec![workspace().workspace_id],
+                active_sessions: 0,
+                accepted: vec![],
+            },
+        )
+        .await
+        .expect("claim");
+    store
+        .record_activity(
+            &token,
+            &[ExecutionActivity {
+                command_id: turn.command.command_id,
+                provider: LocalProvider::Codex,
+                phase: ActivityPhase::NeedsAttention,
+                sequence: 1,
+                at_ms: 1,
+                summary: None,
+            }],
+        )
+        .await
+        .expect("interruption");
+    assert_eq!(
+        request(
+            app,
+            path,
+            Some(json!(action)),
+            Some(cookie),
+            Some("http://127.0.0.1:8080")
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        request(app, path, None, Some(cookie), None).await.0,
+        StatusCode::OK
+    );
+    let mut review = store
+        .recoveries(&token, thread)
+        .await
+        .expect("reviews")
+        .remove(0);
+    review.state = RecoveryState::Ready;
+    review.checkpoint = Some(Checkpoint {
+        provider: LocalProvider::Codex,
+        session_id: turn.command.target.session_id,
+        files: 1,
+        progress: None,
+        digest: "a".repeat(64),
+    });
+    store.recovery_report(&token, &review).await.expect("ready");
+    let approve = RecoveryAction::Continue {
+        id: review.id,
+        digest: "a".repeat(64),
+    };
+    assert_eq!(
+        request(
+            app,
+            path,
+            Some(json!(approve)),
+            Some(cookie),
+            Some("http://127.0.0.1:8080")
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+}
+#[tokio::test]
+async fn recovery_facade_reports_missing_setup_and_storage_errors() {
+    use orchestrator_protocol::recovery::RecoveryAction;
+    let dir = tempfile::tempdir().expect("dir");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    let thread = Uuid::new_v4().try_into().expect("thread");
+    let action = RecoveryAction::Inspect {
+        id: Uuid::new_v4().try_into().expect("id"),
+        command_id: Uuid::new_v4().try_into().expect("id"),
+    };
+    assert!(machine.chat_recoveries(thread).await.is_err());
+    assert!(machine.recover_chat(thread, &action).await.is_err());
+    initialize(&machine).await;
+    let database = Database::new().await;
+    let store = Store::open(&database.url).await.expect("store");
+    machine.execution.set(store.clone()).expect("execution");
+    machine.chat_store().await.expect("identity");
+    let raw = sqlx::PgPool::connect(&database.url).await.expect("raw");
+    sqlx::query("DROP TABLE task_recovery")
+        .execute(&raw)
+        .await
+        .expect("fault");
+    assert!(machine.chat_recoveries(thread).await.is_err());
+    assert!(machine.recover_chat(thread, &action).await.is_err());
+    let app = crate::web::router(machine.clone());
+    let cookie = sign_in(&app, &machine).await;
+    assert_eq!(
+        request(
+            &app,
+            &format!("/api/local/chat/{thread}/recovery"),
+            None,
+            Some(&cookie),
+            None
+        )
+        .await
+        .0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    raw.close().await;
+    machine.close().await;
+    database.close().await;
 }

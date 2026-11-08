@@ -61,3 +61,5 @@ pub mod attachments;
 
 pub mod tool_server;
 pub mod tools;
+
+mod recovery;

@@ -286,6 +286,7 @@ async fn unavailable_provider_catalog_does_not_stop_node_heartbeats() {
             "/v1/dispatch/poll",
             post(|Json(poll): Json<DispatchPoll>| async move {
                 Json(DispatchBatch {
+                    recovery: None,
                     acknowledged: poll.accepted,
                     command: None,
                 })

@@ -20,6 +20,8 @@ const workspace = {
   allow_edits: true,
 };
 const automationData = { workflows: [], routines: [], routes: [], runs: [] };
+let interrupted = false, recoveryView = null;
+const recoveryActions = [];
 const requests = [],
   uploads = [];
 let accepted = null,
@@ -72,7 +74,7 @@ const server = createServer(async (req, res) => {
     if (route === "status") value = { initialized: true };
     else if (route === "config")
       value = {
-        features: { chat: true, attachments: true, activity: true },
+        features: { chat: true, attachments: true, activity: true, recovery: true },
         role: "router_agent",
         name: "Browser test",
         group_id: "test",
@@ -101,6 +103,14 @@ const server = createServer(async (req, res) => {
             },
           ]
         : [];
+    else if (route.endsWith("/recovery")) {
+      if (req.method === "POST") {
+        recoveryActions.push(body);
+        if (body.type === "inspect") recoveryView = {id:body.id, command_id:body.command_id,state:"ready",detail:null,checkpoint:{provider:"claude",session_id:"00000000-0000-0000-0000-000000000004",files:3,progress:"Created the initial project",digest:"a".repeat(64)}};
+        else { assert.equal(body.id,recoveryView.id); assert.equal(body.digest,recoveryView.checkpoint.digest); recoveryView={...recoveryView,state:"resumed"}; }
+        value = recoveryView;
+      } else value = recoveryView ? [recoveryView] : [];
+    }
     else if (route.endsWith("/activity"))
       value = {
         events: accepted
@@ -116,7 +126,7 @@ const server = createServer(async (req, res) => {
                 sequence: 2,
                 command_id: accepted.command_id,
                 provider: "claude",
-                phase: "reading_files",
+                phase: interrupted ? "needs_attention" : "reading_files",
                 at_ms: Date.now() - 2000,
               },
             ]
@@ -129,8 +139,8 @@ const server = createServer(async (req, res) => {
           ? [
               {
                 request: accepted,
-                state: "completed",
-                outcome: {
+                state: interrupted ? "claimed" : "completed",
+                outcome: interrupted ? null : {
                   type: "completed",
                   event: {
                     kind: {
@@ -416,6 +426,23 @@ try {
     "/tmp/cuttlefish-react-desktop.png",
     Buffer.from(desktopScreenshot.data, "base64"),
   );
+  interrupted = true;
+  await cmd("Page.reload");
+  await until(() => evaluate(`!!document.querySelector('[aria-label="Recover interrupted task"] button:not([disabled])')`));
+  await evaluate(`document.querySelector('[aria-label="Recover interrupted task"] button').click()`);
+  await until(() => evaluate(`document.querySelector('[aria-label="Recover interrupted task"]')?.textContent.includes('Continue from checkpoint')`));
+  assert.equal(recoveryActions.length,1,"inspection is a separate read-only operation");
+  await cmd("Page.reload");
+  await until(() => evaluate(`document.querySelector('[aria-label="Recover interrupted task"]')?.textContent.includes('Continue from checkpoint')`));
+  await evaluate(`document.querySelector('[aria-label="Recover interrupted task"]').scrollIntoView({block:'center'})`);
+  await writeFile("/tmp/cuttlefish-recovery-review.png",Buffer.from((await cmd("Page.captureScreenshot",{format:"png"})).data,"base64"));
+  await evaluate(`document.querySelector('[aria-label="Recover interrupted task"] button').click()`);
+  await until(() => evaluate(`document.querySelector('[aria-label="Recover interrupted task"]')?.textContent.includes('Continuation saved')`));
+  assert.equal(recoveryActions.length,2);
+  assert.equal(requests.length,2,"recovery must not repost the original chat request");
+  interrupted = false;
+  await cmd("Page.reload");
+  await until(() => evaluate(`document.querySelector('.activity-title')?.textContent==='Completed'`));
   await cmd("Emulation.setDeviceMetricsOverride", {
     width: 390,
     height: 844,

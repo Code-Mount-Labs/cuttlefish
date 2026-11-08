@@ -192,6 +192,7 @@ fn initialize_prompts_with(
         ("router", "selection.md", Kind::Router),
         ("super-agent", "planner.md", Kind::Planner),
         ("execution", "specialist.md", Kind::Specialist),
+        ("execution", "recovery.md", Kind::Recovery),
         ("collaboration", "agents.md", Kind::CollaborationAgents),
         ("collaboration", "delegate.md", Kind::CollaborationDelegate),
         ("collaboration", "task.md", Kind::CollaborationTask),

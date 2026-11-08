@@ -312,3 +312,38 @@ fn chat_error(error: &orchestrator_coordinator::Error) -> Error {
         ),
     }
 }
+
+impl Machine {
+    /// Read saved recovery reviews for an authenticated conversation.
+    /// # Errors
+    /// Reports unavailable storage or authentication.
+    pub async fn chat_recoveries(
+        &self,
+        thread: ThreadId,
+    ) -> Result<Vec<orchestrator_protocol::recovery::RecoveryView>, Error> {
+        let (store, token) = self.chat_store().await?;
+        store
+            .recoveries(&token, thread)
+            .await
+            .map_err(|_| Error::Dependency("Recovery status is temporarily unavailable."))
+    }
+    /// Inspect or explicitly approve continuation of an interrupted task.
+    /// # Errors
+    /// Rejects stale approvals, unavailable storage or invalid task states.
+    pub async fn recover_chat(
+        &self,
+        thread: ThreadId,
+        action: &orchestrator_protocol::recovery::RecoveryAction,
+    ) -> Result<orchestrator_protocol::recovery::RecoveryView, Error> {
+        let (store, token) = self.chat_store().await?;
+        store
+            .recover(&token, thread, action)
+            .await
+            .map_err(|error| match error {
+                orchestrator_coordinator::Error::RoutingConflict(message) => {
+                    Error::Invalid(message)
+                }
+                _ => Error::Dependency("Recovery could not be saved. Retry the same request."),
+            })
+    }
+}

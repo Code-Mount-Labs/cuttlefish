@@ -12,3 +12,7 @@ mod providers;
 mod runtime;
 #[path = "suites/survival.rs"]
 mod survival;
+
+#[cfg(unix)]
+#[path = "suites/recovery.rs"]
+mod recovery;

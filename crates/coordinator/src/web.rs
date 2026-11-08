@@ -46,6 +46,7 @@ pub fn router_with_selector(store: Store, selector: Arc<dyn Selector>) -> Router
         .route("/v1/events", get(events))
         .route("/v1/threads/{thread}", get(thread))
         .route("/v1/dispatch/poll", post(poll))
+        .route("/v1/recovery/report", post(recovery_report))
         .merge(crate::collaboration_web::store_router())
         .with_state(store)
         .merge(routing)
@@ -76,14 +77,24 @@ async fn thread(
     Ok(Json(store.thread(&token(&headers)?, thread).await?))
 }
 
+#[derive(Deserialize)]
+struct PollFeatures {
+    #[serde(default)]
+    recovery: bool,
+}
+
 async fn poll(
     State(store): State<Store>,
+    Query(features): Query<PollFeatures>,
     headers: HeaderMap,
     Json(request): Json<DispatchPoll>,
 ) -> Result<Json<DispatchBatch>, Error> {
-    Ok(Json(
-        store.poll_dispatch(&token(&headers)?, &request).await?,
-    ))
+    let token = token(&headers)?;
+    let mut batch = store.poll_dispatch(&token, &request).await?;
+    if features.recovery {
+        batch.recovery = store.recovery_job(&token).await?;
+    }
+    Ok(Json(batch))
 }
 
 pub(crate) fn token(headers: &HeaderMap) -> Result<NodeToken, Error> {
@@ -207,4 +218,12 @@ async fn agent_tool(
     Json(request): Json<orchestrator_protocol::tools::ToolRequest>,
 ) -> Result<Json<serde_json::Value>, Error> {
     Ok(Json(service.agent_tool(&token(&headers)?, &request).await?))
+}
+
+async fn recovery_report(
+    State(store): State<Store>,
+    headers: HeaderMap,
+    Json(view): Json<orchestrator_protocol::recovery::RecoveryView>,
+) -> Result<Json<orchestrator_protocol::ids::CommandId>, Error> {
+    Ok(Json(store.recovery_report(&token(&headers)?, &view).await?))
 }

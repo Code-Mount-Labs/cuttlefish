@@ -779,3 +779,39 @@ fn malformed_public_updates_never_become_reasoning_or_progress() {
         );
     }
 }
+
+#[tokio::test]
+async fn provider_stop_evidence_fails_closed_on_storage_and_process_errors() {
+    for fault in [
+        "ALTER TABLE provider_bindings RENAME TO unavailable",
+        "ALTER TABLE provider_quiescence RENAME TO unavailable",
+        "CREATE TRIGGER fail BEFORE INSERT ON provider_quiescence WHEN NEW.stopped=1 BEGIN SELECT RAISE(ABORT,'stop evidence unavailable'); END",
+    ] {
+        let (_f, mut a) = agent(LocalProvider::Claude).await;
+        sqlx::query(fault)
+            .execute(&a.journal.pool)
+            .await
+            .expect("fault");
+        assert!(a.run(&start(), "test").await.is_err());
+        a.config.executable = std::path::PathBuf::from("/missing-provider-for-recovery-test");
+        assert!(a.run(&start(), "test").await.is_err());
+    }
+    let (_f, a) = agent(LocalProvider::Claude).await;
+    assert!(
+        a.record_provider_stop(
+            &start(),
+            Err(std::io::Error::other("process termination failed"))
+        )
+        .await
+        .is_err()
+    );
+    let proof: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM provider_quiescence WHERE stopped=1)")
+            .fetch_one(&a.journal.pool)
+            .await
+            .expect("proof");
+    assert!(
+        !proof,
+        "failed process stop must never authorize continuation"
+    );
+}

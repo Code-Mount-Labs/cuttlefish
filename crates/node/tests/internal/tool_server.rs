@@ -23,7 +23,7 @@ async fn mcp_serves_bounded_scoped_requests_and_reports_errors() {
         json!({"id":7,"method":"tools/call","params":{"name":"cuttlefish_agents","arguments":{}}}),
     ];
     f.journal
-        .stage_tool(id(6), &owner, "7", ToolAction::Agents {})
+        .stage_tool(id(6), &owner, &format!("{owner}:7"), ToolAction::Agents {})
         .await
         .expect("stage");
     sqlx::query("UPDATE provider_tools SET response=?")

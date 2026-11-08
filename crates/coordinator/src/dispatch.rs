@@ -187,6 +187,7 @@ impl Store {
             .bind(group).bind(node).fetch_optional(&mut *tx).await?;
         tx.commit().await?;
         Ok(DispatchBatch {
+            recovery: None,
             acknowledged: poll.accepted.clone(),
             command: command.map(|c| c.0),
         })
@@ -293,7 +294,7 @@ async fn validate_request(
     group: Uuid,
     request: &RouteRequest,
 ) -> Result<(), Error> {
-    let (pending, cancelling, interrupted): (i64, bool, bool) = sqlx::query_as("SELECT count(*),COALESCE(bool_or(d.request#>>'{action,type}'='cancel'),false),COALESCE(bool_or(EXISTS(SELECT 1 FROM execution_activity a WHERE a.group_id=d.group_id AND a.command_id=d.command_id AND a.payload->>'phase'='needs_attention')),false) FROM dispatches d WHERE d.group_id=$1 AND d.thread_id=$2 AND d.state<>'completed'")
+    let (pending, cancelling, interrupted): (i64, bool, bool) = sqlx::query_as("SELECT count(*),COALESCE(bool_or(d.request#>>'{action,type}'='cancel'),false),COALESCE(bool_or(EXISTS(SELECT 1 FROM execution_activity a WHERE a.group_id=d.group_id AND a.command_id=d.command_id AND a.payload->>'phase'='needs_attention' AND a.sequence=(SELECT max(latest.sequence) FROM execution_activity latest WHERE latest.group_id=d.group_id AND latest.command_id=d.command_id))),false) FROM dispatches d WHERE d.group_id=$1 AND d.thread_id=$2 AND d.state<>'completed'")
         .bind(group).bind(Uuid::from(request.thread_id)).fetch_one(&mut **tx).await?;
     if interrupted {
         return Err(Error::RoutingConflict(

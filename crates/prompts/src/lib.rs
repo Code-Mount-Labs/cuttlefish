@@ -10,6 +10,8 @@ use std::{
 pub enum Kind {
     /// Placement-only routing instructions.
     Router,
+    /// Inspect saved work before continuing an interrupted provider turn.
+    Recovery,
     /// Planning, delegation and learning instructions.
     Planner,
     /// Instructions for locally authenticated specialist providers.
@@ -25,6 +27,7 @@ impl Kind {
     const fn path(self) -> &'static str {
         match self {
             Self::Router => "router/selection.md",
+            Self::Recovery => "execution/recovery.md",
             Self::Planner => "super-agent/planner.md",
             Self::Specialist => "execution/specialist.md",
             Self::CollaborationAgents => "collaboration/agents.md",
@@ -43,6 +46,7 @@ impl Prompt {
     pub fn bundled(kind: Kind) -> Self {
         Self(
             match kind {
+                Kind::Recovery => include_str!("../../../prompts/execution/recovery.md"),
                 Kind::Router => include_str!("../../../prompts/router/selection.md"),
                 Kind::Planner => include_str!("../../../prompts/super-agent/planner.md"),
                 Kind::Specialist => include_str!("../../../prompts/execution/specialist.md"),
@@ -92,6 +96,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("directory");
         for kind in [
             Kind::Router,
+            Kind::Recovery,
             Kind::Planner,
             Kind::Specialist,
             Kind::CollaborationAgents,

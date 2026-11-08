@@ -12,6 +12,11 @@ use crate::model::LaunchSpec;
 /// An owned child that can be reaped without blocking. Dropping it must not kill
 /// the specialist: supervisor replacement is an expected operation.
 pub trait ManagedProcess: Debug {
+    /// OS process identity, when available, for matching a registered worker.
+    fn pid(&self) -> Option<u32> {
+        None
+    }
+
     /// Check termination and reap the process if it exited.
     ///
     /// # Errors
@@ -20,6 +25,9 @@ pub trait ManagedProcess: Debug {
 }
 
 impl ManagedProcess for Child {
+    fn pid(&self) -> Option<u32> {
+        Some(self.id())
+    }
     fn try_wait(&mut self) -> io::Result<Option<bool>> {
         Child::try_wait(self).map(|status| status.map(|exit| exit.success()))
     }

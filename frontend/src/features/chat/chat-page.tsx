@@ -17,6 +17,7 @@ import type { Config } from "../../lib/contracts";
 import { activityState, providerLabel } from "../../lib/activity";
 import { useChat } from "./use-chat";
 import { Message } from "./message";
+import { TaskRecovery } from "./recovery";
 import { TaskActivity } from "./activity";
 import { DelegatedTasks } from "./delegated-tasks";
 import { Composer } from "./composer";
@@ -198,6 +199,17 @@ export function ChatPage({
                     )}
                     lastSeen={lastSeen}
                   />
+                  {config.features?.recovery &&
+                    chat.thread &&
+                    turn.state !== "completed" &&
+                    events
+                      .filter((e) => e.command_id === turn.request.command_id)
+                      .at(-1)?.phase === "needs_attention" && (
+                      <TaskRecovery
+                        thread={chat.thread}
+                        command={turn.request.command_id}
+                      />
+                    )}
                   {turn.outcome?.type === "completed" &&
                     turn.outcome.event.kind.type === "replied" && (
                       <Message

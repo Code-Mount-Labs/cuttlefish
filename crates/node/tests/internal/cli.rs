@@ -551,6 +551,7 @@ async fn execution_mode_owns_the_supervisor_and_supports_one_shot_and_watch() {
             "/v1/dispatch/poll",
             post(|Json(poll): Json<DispatchPoll>| async move {
                 Json(DispatchBatch {
+                    recovery: None,
                     acknowledged: poll.accepted,
                     command: None,
                 })

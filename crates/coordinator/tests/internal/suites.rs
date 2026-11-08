@@ -50,3 +50,6 @@ mod routines;
 
 #[path = "../suites/agent_tools.rs"]
 pub(crate) mod agent_tools;
+
+#[path = "../suites/recovery.rs"]
+mod recovery;

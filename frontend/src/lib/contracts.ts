@@ -118,6 +118,7 @@ export const configSchema = z.object({
       updates: z.boolean().optional(),
       followups: z.boolean().optional(),
       collaboration: z.boolean().optional(),
+      recovery: z.boolean().optional(),
     })
     .optional(),
   database: z.object({
@@ -150,4 +151,20 @@ export const childTaskSchema = z.object({
     .object({ type: z.enum(["completed", "rejected"]) })
     .passthrough()
     .nullish(),
+});
+
+export const recoverySchema = z.object({
+  id: z.string(),
+  command_id: z.string(),
+  state: z.enum(["inspecting", "ready", "blocked", "approved", "resumed"]),
+  checkpoint: z
+    .object({
+      provider: z.enum(["codex", "claude"]),
+      session_id: z.string(),
+      files: z.number(),
+      progress: z.string().nullable(),
+      digest: z.string(),
+    })
+    .nullable(),
+  detail: z.string().nullable(),
 });

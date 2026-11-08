@@ -53,7 +53,7 @@ export function activityState(
       : "Waiting for the first update",
     quiet,
     hint: attention
-      ? `${latest?.summary || "The provider stopped before confirming a result."} Work already saved has been kept. Review the workspace before starting a new session; this turn won’t be repeated automatically.`
+      ? `${latest?.summary || "The provider stopped before confirming a result."} Work already saved has been kept. Inspect the saved work to review recovery options. This turn won’t be repeated automatically.`
       : offline
         ? "The task may still be running. Updates will resume when the agent reconnects."
         : quiet

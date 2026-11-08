@@ -98,6 +98,11 @@ impl LocalAgent {
     }
     async fn run(&self, command: &AgentCommand, message: &str) -> Result<String, NodeError> {
         crate::execution::check_directory(&self.config, &self.config.directory)?;
+        let recovery = self
+            .journal
+            .recovery_message(command, message, &self.config.instructions)
+            .await?;
+        let message = recovery.as_deref().unwrap_or(message);
         let binding = self
             .journal
             .provider_binding(command.target.session_id)
@@ -111,7 +116,18 @@ impl LocalAgent {
         let message = crate::attachments::input_context(&self.config, command, message)?;
         let mut process = self.process(command, binding.as_ref()).await?;
         self.activity(command, ActivityPhase::Connecting).await?;
-        let (mut child, mut wire) = spawn(&mut process)?;
+        self.journal
+            .provider_quiescence(command, &self.instance, false)
+            .await?;
+        let (mut child, mut wire) = match spawn(&mut process) {
+            Ok(pair) => pair,
+            Err(error) => {
+                self.journal
+                    .provider_quiescence(command, &self.instance, true)
+                    .await?;
+                return Err(error);
+            }
+        };
         // Provider turns may legitimately take hours. Liveness is supervised independently;
         // elapsed wall time alone must never terminate active work.
         let result = async {
@@ -138,8 +154,19 @@ impl LocalAgent {
         }
         .await;
         // App-server is session-scoped here; the durable worker survives supervisor restarts.
-        let _ = child.kill().await;
+        self.record_provider_stop(command, child.kill().await)
+            .await?;
         result
+    }
+    async fn record_provider_stop(
+        &self,
+        command: &AgentCommand,
+        result: std::io::Result<()>,
+    ) -> Result<(), NodeError> {
+        result?;
+        self.journal
+            .provider_quiescence(command, &self.instance, true)
+            .await
     }
     async fn process(
         &self,

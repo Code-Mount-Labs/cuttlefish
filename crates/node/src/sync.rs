@@ -29,6 +29,7 @@ impl Remote {
             "{}/v1/dispatch/poll",
             self.endpoint.path().trim_end_matches("/v1/sync")
         ));
+        endpoint.set_query(Some("recovery=true"));
         let mut response = self
             .client
             .post(endpoint)
@@ -57,6 +58,19 @@ impl Remote {
             .journal()
             .acknowledge_dispatch(&poll.accepted)
             .await?;
+        if let Some(job) = batch.recovery {
+            let view = runtime.recover(&job).await?;
+            let reply = self
+                .exchange(
+                    "/v1/recovery/report",
+                    reqwest::Method::POST,
+                    Some(serde_json::json!(view)),
+                )
+                .await?;
+            if reply != serde_json::json!(view.id) {
+                return Err(NodeError::Rejected("recovery acknowledgment mismatch"));
+            }
+        }
         if let Some(command) = batch.command {
             self.download_inputs(runtime.journal(), &command).await?;
             runtime.submit(&command).await?;

@@ -78,6 +78,50 @@ not mid-turn interruption. An already-interrupted turn rejects new follow-ups
 with an explanation rather than silently placing them in a blocked queue.
 Idle sessions remain resumable without consuming active execution capacity.
 
+## Continue an interrupted task
+
+An interrupted turn offers **Inspect saved work**. This asks its original agent
+for a read-only checkpoint; it does not invoke a provider or send the original
+request again. The review shows the provider, saved session, project file count,
+and last available public progress update. Choose **Continue from checkpoint**
+to explicitly authorize continuation.
+
+The node verifies its command journal, provider binding, workspace, completed
+provider shutdown, and any outstanding approvals or tool results. It hashes the
+saved command, binding, configuration, and file contents. An edit between review
+and approval invalidates the review. Inspection is bounded to 10,000 entries,
+16 directory levels, and 256 MiB of file data; `.git`, `node_modules`, `target`,
+and `.venv` are excluded, and symlinks are not traversed. This is a review of the
+current files, not a backup or a claim that their contents are correct.
+
+Continuation retains the original command, chat, task, workspace, provider session,
+and queued follow-ups. A new fenced worker receives the continuation instructions
+in `prompts/execution/recovery.md`, with the original request supplied as context.
+It first checks the saved conversation, existing files, artifacts, and delegated
+tasks, verifies uncertain effects, and continues only the remaining work. It must
+ask when an external effect cannot be verified. The model can still make mistakes;
+existing file permissions and approval requirements continue to apply.
+
+Review, approval, and launch intent are durable across server and supervisor
+restarts. Repeated clicks and lost responses reuse the same recovery identity.
+Recovery never falls back to a fresh provider session. The original agent must
+reconnect and support recovery; there is no automatic migration to a different
+computer. Nodes opt in with `?recovery=true` on dispatch polling, so
+older nodes continue receiving ordinary tasks without unsupported payloads.
+
+Older interruptions may lack a recorded provider shutdown. Missing sessions,
+unresolved approvals/tool results, changed files, inaccessible workspaces, and
+unknown process state block continuation with an explanation. The saved files
+remain intact. Recovery deliberately does not guess that an old process stopped.
+
+Authenticated, origin-checked dashboard API:
+
+- `GET /api/local/chat/{thread}/recovery`: list saved recovery reviews.
+- `POST /api/local/chat/{thread}/recovery`: `inspect` with a stable `id` and
+  `command_id`, or `continue` with the reviewed `id` and exact `digest`.
+- Node dispatch includes an optional `recovery` job; the original authenticated
+  node reports its result to `POST /v1/recovery/report`.
+
 ## Collaboration
 
 Codex and Claude Code receive three native Cuttlefish tools: discover registered

@@ -81,6 +81,10 @@ pub fn router(machine: Machine) -> Router {
         .route("/api/local/chat/{thread}", get(chat))
         .route("/api/local/chat/{thread}/activity", get(chat_activity))
         .route("/api/local/chat/{thread}/tasks", get(chat_tasks))
+        .route(
+            "/api/local/chat/{thread}/recovery",
+            get(chat_recoveries).post(recover_chat),
+        )
         .fallback(execution)
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(axum::middleware::map_response(headers))
@@ -206,7 +210,7 @@ async fn configuration(
     authorize(&machine, &headers, false).await?;
     let identity = machine.identity().await?;
     Ok(Json(
-        json!({"features":{"chat":true,"attachments":true,"activity":true,"automations":true,"updates":true,"followups":true,"collaboration":true},"group_id":identity.registration.group_id,"installation_id":identity.registration.installation_id,"name":identity.registration.name,"role":identity.registration.role,"database":machine.status().await?,"model":machine.model_status().await?,"remote":machine.remote_status().await?}),
+        json!({"features":{"chat":true,"attachments":true,"activity":true,"automations":true,"updates":true,"followups":true,"collaboration":true,"recovery":true},"group_id":identity.registration.group_id,"installation_id":identity.registration.installation_id,"name":identity.registration.name,"role":identity.registration.role,"database":machine.status().await?,"model":machine.model_status().await?,"remote":machine.remote_status().await?}),
     ))
 }
 async fn database(
@@ -469,4 +473,22 @@ async fn chat_tasks(
 ) -> Result<Json<Vec<serde_json::Value>>, Error> {
     authorize(&machine, &headers, false).await?;
     Ok(Json(machine.chat_tasks(thread).await?))
+}
+
+async fn chat_recoveries(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+    Path(thread): Path<orchestrator_protocol::ids::ThreadId>,
+) -> Result<Json<Vec<orchestrator_protocol::recovery::RecoveryView>>, Error> {
+    authorize(&machine, &headers, false).await?;
+    Ok(Json(machine.chat_recoveries(thread).await?))
+}
+async fn recover_chat(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+    Path(thread): Path<orchestrator_protocol::ids::ThreadId>,
+    Json(action): Json<orchestrator_protocol::recovery::RecoveryAction>,
+) -> Result<Json<orchestrator_protocol::recovery::RecoveryView>, Error> {
+    authorize(&machine, &headers, true).await?;
+    Ok(Json(machine.recover_chat(thread, &action).await?))
 }

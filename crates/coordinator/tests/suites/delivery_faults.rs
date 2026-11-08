@@ -37,6 +37,7 @@ async fn delivery_retries_do_not_spawn_twice_and_invalid_responses_keep_receipts
         "/v1/dispatch/poll",
         post(|Json(poll): Json<DispatchPoll>| async move {
             Json(DispatchBatch {
+                recovery: None,
                 acknowledged: poll.accepted,
                 command: Some(data::report().events[0].command.clone()),
             })
@@ -119,6 +120,7 @@ async fn acceptance_and_acknowledgment_storage_failures_are_recoverable() {
             "/v1/dispatch/poll",
             post(|Json(poll): Json<DispatchPoll>| async move {
                 Json(DispatchBatch {
+                    recovery: None,
                     acknowledged: poll.accepted,
                     command: Some(data::report().events[0].command.clone()),
                 })
@@ -203,6 +205,7 @@ async fn execution_loop_retries_and_shutdown_preserves_workers() {
                             StatusCode::SERVICE_UNAVAILABLE.into_response()
                         } else {
                             Json(DispatchBatch {
+                                recovery: None,
                                 acknowledged: poll.accepted,
                                 command: Some(data::report().events[0].command.clone()),
                             })
@@ -331,6 +334,7 @@ async fn failed_input_staging_and_report_reads_do_not_accept_or_acknowledge_work
                     });
             }
             Json(DispatchBatch {
+                recovery: None,
                 acknowledged: poll.accepted,
                 command: Some(command),
             })

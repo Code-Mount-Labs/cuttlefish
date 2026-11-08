@@ -63,13 +63,13 @@ with tempfile.TemporaryDirectory(prefix='cuttlefish-release-') as folder:
     assets.append(str(sums))
     hashes[sums.name] = hashlib.sha256(sums.read_bytes()).hexdigest()
     notes = root / 'notes.md'
-    notes.write_text(f'''Cuttlefish {tag} adds durable follow-ups, clearer live activity, and native Codex/Claude Code collaboration.
+    notes.write_text(f'''Cuttlefish {tag} adds reviewed recovery for interrupted tasks.
 
-Send a message while a task runs: it is saved and delivered in order after the current turn, using the existing provider session. The activity view shows public provider updates, grouped tool activity, last-update freshness, and delegated tasks. Codex and Claude Code can discover configured peers, delegate scoped work, and collect their results through authenticated, durable tools.
+Interrupted tasks now offer **Inspect saved work → Continue from checkpoint**. The original agent checks the saved journal, provider session, workspace contents, confirmed provider shutdown and unresolved approvals/tool calls. Approval is tied to the exact checkpoint; changed state requires another inspection.
 
-Long-running provider turns are no longer killed at a fixed ten-minute deadline. Genuine interruptions retain saved files and report a bounded cause; uncertain external actions are never replayed automatically. An already interrupted task still requires review before continuing in a new session. Idle sessions no longer consume active execution slots. Explicit lock release also prevents brief false-busy states during concurrent process creation.
+Continuation keeps the original chat, task, files, provider session and queued follow-ups. It inspects existing work and verifies uncertain effects before continuing remaining steps. Review and launch intent survive restarts and lost responses. Duplicate launches cannot interrupt the registered worker, and recovery never falls back to a fresh provider session.
 
-Update the router and participating agents together for collaboration support. Three editable tool descriptions are added under `prompts/collaboration/`; existing prompt edits and provider sign-ins are preserved. Delegation does not grant new permissions or automatically share machine filesystems, and child agents cannot recursively delegate in this increment.
+Update the router and participating agents together to enable recovery. The continuation instruction is editable at `prompts/execution/recovery.md`; existing prompt edits and provider sign-ins are preserved. Legacy interruptions without a confirmed provider shutdown record remain blocked with an explanation. The original agent and provider session must be available. This feature is not a workspace backup; uncertain external effects still require verification.
 
 The dashboard update/restart controls and `cuttlefish update` remain available. A detached updater verifies the archive and executable version before atomically selecting a complete release. The dashboard reconnects after restart and offers an explicit reload button.
 

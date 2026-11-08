@@ -64,5 +64,11 @@ http.server.HTTPServer(('127.0.0.1',port),Handler).serve_forever()
         action('status');action('uninstall');assert marker.read_text()=='retain across restarts'
         assert not list((home/'Library/LaunchAgents').glob('*.plist'))
         print('PASS: real launchd install, idempotency, crash recovery, restart, stop/start, and uninstall')
+    except BaseException:
+        result=subprocess.run(['launchctl','print',target],capture_output=True,text=True)
+        print(result.stdout, result.stderr, file=sys.stderr)
+        error_log=state/'service/stderr.log'
+        if error_log.exists(): print(error_log.read_text()[-8000:],file=sys.stderr)
+        raise
     finally:
         subprocess.run(['launchctl','bootout',target],capture_output=True)

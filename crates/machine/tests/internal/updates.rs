@@ -332,7 +332,7 @@ async fn public_actions_and_cli_observe_detached_helper_results() {
         .await
         .expect("bind");
     let url = format!("http://{}", listener.local_addr().expect("address"));
-    let target = catalog::target(std::env::consts::OS, std::env::consts::ARCH).expect("target");
+    let target = catalog::target(manager.os, std::env::consts::ARCH).expect("target");
     let releases = serde_json::json!([{"tag_name":"v0.2.0-alpha.7","draft":false,"assets":[{"name":format!("cuttlefish-v0.2.0-alpha.7-{target}.tar.gz")},{"name":"SHA256SUMS"}]}]);
     let task = tokio::spawn(async move {
         axum::serve(

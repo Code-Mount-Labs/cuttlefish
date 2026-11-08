@@ -105,7 +105,8 @@ impl Remote {
     ) -> Result<(), NodeError> {
         runtime.tick().await?;
         self.synchronize(runtime.journal(), profile).await?;
-        self.dispatch(runtime).await
+        self.dispatch(runtime).await?;
+        self.flush_tools(runtime.journal()).await
     }
     /// Keep presence and results synchronized, retrying failures every five seconds.
     /// Shutdown cancels only synchronization; specialists continue independently.

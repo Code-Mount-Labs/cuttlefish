@@ -19,7 +19,7 @@ pub struct NodeRuntime<L: Launcher> {
     journal: Journal,
     launcher: L,
     children: BTreeMap<SessionId, (String, L::Process)>,
-    _owner_lock: File,
+    owner_lock: File,
 }
 
 impl<L: Launcher> NodeRuntime<L> {
@@ -46,7 +46,7 @@ impl<L: Launcher> NodeRuntime<L> {
             journal,
             launcher,
             children: BTreeMap::new(),
-            _owner_lock: owner_lock,
+            owner_lock,
         })
     }
 
@@ -103,5 +103,13 @@ impl<L: Launcher> NodeRuntime<L> {
             self.children.remove(&id);
         }
         self.journal.expire(30_000).await
+    }
+}
+
+impl<L: Launcher> Drop for NodeRuntime<L> {
+    fn drop(&mut self) {
+        // Explicitly release ownership before closing: a concurrent fork may briefly
+        // inherit the descriptor until exec, and must not delay a clean restart.
+        let _ = self.owner_lock.unlock();
     }
 }

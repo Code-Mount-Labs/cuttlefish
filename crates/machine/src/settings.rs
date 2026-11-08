@@ -192,6 +192,9 @@ fn initialize_prompts_with(
         ("router", "selection.md", Kind::Router),
         ("super-agent", "planner.md", Kind::Planner),
         ("execution", "specialist.md", Kind::Specialist),
+        ("collaboration", "agents.md", Kind::CollaborationAgents),
+        ("collaboration", "delegate.md", Kind::CollaborationDelegate),
+        ("collaboration", "task.md", Kind::CollaborationTask),
     ] {
         let parent = directory.join("prompts").join(subdirectory);
         let target = parent.join(name);

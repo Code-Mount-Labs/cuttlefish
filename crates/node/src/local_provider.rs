@@ -9,7 +9,7 @@ use orchestrator_protocol::{
     values::MessageText,
 };
 use serde_json::{Value, json};
-use std::{collections::VecDeque, process::Stdio, time::Duration};
+use std::{collections::VecDeque, process::Stdio};
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     process::Command,
@@ -24,15 +24,22 @@ pub struct LocalAgent {
     journal: Journal,
     instance: String,
     config: ExecutionConfig,
+    tool_binary: std::path::PathBuf,
 }
 impl LocalAgent {
     /// Construct a provider adapter for an already registered worker.
     #[must_use]
-    pub fn new(journal: Journal, instance: String, config: ExecutionConfig) -> Self {
+    pub fn new(
+        journal: Journal,
+        instance: String,
+        config: ExecutionConfig,
+        tool_binary: std::path::PathBuf,
+    ) -> Self {
         Self {
             journal,
             instance,
             config,
+            tool_binary,
         }
     }
     async fn activity(
@@ -48,6 +55,28 @@ impl LocalAgent {
                 phase,
             )
             .await
+    }
+    async fn observe(
+        &self,
+        command: &AgentCommand,
+        provider: LocalProvider,
+        event: &Value,
+    ) -> Result<(), NodeError> {
+        if let Some(text) = public_progress(provider, event) {
+            let boundary = text.floor_char_boundary(2000);
+            self.journal
+                .record_observation(
+                    command.command_id,
+                    &self.instance,
+                    provider,
+                    ActivityPhase::Commentary,
+                    Some(&text[..boundary]),
+                )
+                .await?;
+        } else if let Some(phase) = observed_activity(provider, event) {
+            self.activity(command, phase).await?;
+        }
+        Ok(())
     }
     async fn bind(&self, command: &AgentCommand, id: &str) -> Result<(), NodeError> {
         let binding = ProviderBinding {
@@ -68,15 +97,6 @@ impl LocalAgent {
             .await
     }
     async fn run(&self, command: &AgentCommand, message: &str) -> Result<String, NodeError> {
-        self.run_with_timeout(command, message, Duration::from_mins(10))
-            .await
-    }
-    async fn run_with_timeout(
-        &self,
-        command: &AgentCommand,
-        message: &str,
-        timeout: Duration,
-    ) -> Result<String, NodeError> {
         crate::execution::check_directory(&self.config, &self.config.directory)?;
         let binding = self
             .journal
@@ -92,7 +112,9 @@ impl LocalAgent {
         let mut process = self.process(command, binding.as_ref()).await?;
         self.activity(command, ActivityPhase::Connecting).await?;
         let (mut child, mut wire) = spawn(&mut process)?;
-        let result = tokio::time::timeout(timeout, async {
+        // Provider turns may legitimately take hours. Liveness is supervised independently;
+        // elapsed wall time alone must never terminate active work.
+        let result = async {
             match self.config.workspace.provider {
                 LocalProvider::Codex => {
                     self.codex(command, &message, binding.as_ref(), &mut wire)
@@ -113,9 +135,8 @@ impl LocalAgent {
                     Ok(text)
                 }
             }
-        })
-        .await
-        .map_err(|_| NodeError::Rejected("provider timeout; inspect workspace before retrying"))?;
+        }
+        .await;
         // App-server is session-scoped here; the durable worker survives supervisor restarts.
         let _ = child.kill().await;
         result
@@ -140,24 +161,18 @@ impl LocalAgent {
         ] {
             process.env_remove(key);
         }
+        let tool_binary = &self.tool_binary;
+        let tool_args = vec![
+            "tools".to_owned(),
+            "--journal".to_owned(),
+            self.journal.path().to_string_lossy().into_owned(),
+            "--parent".to_owned(),
+            command.command_id.to_string(),
+            "--instance".to_owned(),
+            self.instance.clone(),
+        ];
         match self.config.workspace.provider {
-            LocalProvider::Codex => {
-                process.args([
-                    "app-server",
-                    "-c",
-                    "mcp_servers={}",
-                    "-c",
-                    "features.apps=false",
-                    "-c",
-                    "features.plugins=false",
-                    "-c",
-                    "features.multi_agent=false",
-                    "-c",
-                    "skills.include_instructions=false",
-                    "-c",
-                    "tool_output_token_limit=2000",
-                ]);
-            }
+            LocalProvider::Codex => configure_codex(&mut process, tool_binary, &tool_args),
             LocalProvider::Claude => {
                 let id = binding.map_or_else(
                     || command.target.session_id.to_string(),
@@ -170,7 +185,11 @@ impl LocalAgent {
                         "--output-format",
                         "stream-json",
                         "--verbose",
-                        "--safe-mode",
+                        "--setting-sources",
+                        "",
+                        "--disable-slash-commands",
+                        "--settings",
+                        "{\"disableAllHooks\":true}",
                         "--restricted",
                         "--strict-mcp-config",
                         "--tools",
@@ -190,6 +209,8 @@ impl LocalAgent {
                         "--session-id"
                     })
                     .arg(id);
+                process.arg("--mcp-config").arg(json!({"mcpServers":{"cuttlefish":{"command":tool_binary,"args":tool_args}}}).to_string())
+                    .arg("--allowedTools").arg("mcp__cuttlefish__cuttlefish_agents,mcp__cuttlefish__cuttlefish_delegate,mcp__cuttlefish__cuttlefish_task");
                 if !self.config.workspace.allow_edits {
                     process.args(["--disallowedTools", "Edit,Write"]);
                 }
@@ -244,10 +265,8 @@ impl LocalAgent {
                 .pointer("/params/turnId")
                 .or_else(|| event.pointer("/params/turn/id"))
                 .and_then(Value::as_str);
-            if event_turn == Some(turn)
-                && let Some(phase) = observed_activity(LocalProvider::Codex, &event)
-            {
-                self.activity(command, phase).await?;
+            if event_turn == Some(turn) {
+                self.observe(command, LocalProvider::Codex, &event).await?;
             }
             match event.get("method").and_then(Value::as_str) {
                 Some("item/completed")
@@ -283,9 +302,7 @@ impl LocalAgent {
             if let Some(id) = event.get("session_id").and_then(Value::as_str) {
                 self.bind(command, id).await?;
             }
-            if let Some(phase) = observed_activity(LocalProvider::Claude, &event) {
-                self.activity(command, phase).await?;
-            }
+            self.observe(command, LocalProvider::Claude, &event).await?;
             if event.get("type").and_then(Value::as_str) == Some("result") {
                 if event.get("session_id").and_then(Value::as_str).is_none() {
                     return Err(NodeError::Rejected("provider session missing"));
@@ -313,9 +330,20 @@ impl Agent for LocalAgent {
     }
     async fn execute(&mut self, command: &AgentCommand) -> Result<AgentEvent, NodeError> {
         let result = self.execute_turn(command).await;
-        if result.is_err() {
-            // The original failure is authoritative even when storage is unavailable.
-            let _ = self.activity(command, ActivityPhase::NeedsAttention).await;
+        if let Err(error) = &result {
+            // Only controlled explanations enter the shared activity stream, never raw
+            // provider stderr, credential-bearing transport errors or reasoning.
+            let summary = failure_summary(error);
+            let _ = self
+                .journal
+                .record_observation(
+                    command.command_id,
+                    &self.instance,
+                    self.config.workspace.provider,
+                    ActivityPhase::NeedsAttention,
+                    Some(summary),
+                )
+                .await;
         }
         result
     }
@@ -489,5 +517,78 @@ fn observed_activity(provider: LocalProvider, event: &Value) -> Option<ActivityP
             }
             _ => None,
         },
+    }
+}
+
+/// Public progress is distinct from private reasoning and the final answer.
+fn public_progress(provider: LocalProvider, event: &Value) -> Option<&str> {
+    let text = match provider {
+        LocalProvider::Codex
+            if event["method"] == "item/completed"
+                && event.pointer("/params/item/type")?.as_str()? == "agentMessage"
+                && event.pointer("/params/item/phase")?.as_str()? == "commentary" =>
+        {
+            event.pointer("/params/item/text")?.as_str()?
+        }
+        LocalProvider::Claude if event["type"] == "assistant" => event
+            .pointer("/message/content")?
+            .as_array()?
+            .iter()
+            .find(|block| block["type"] == "text")?
+            .get("text")?
+            .as_str()?,
+        _ => return None,
+    };
+    (!text.trim().is_empty()).then_some(text)
+}
+
+fn failure_summary(error: &NodeError) -> &'static str {
+    match error {
+        NodeError::Rejected(reason) => reason,
+        NodeError::Io(_) => {
+            "The provider connection closed or local I/O failed. Saved files may already contain changes."
+        }
+        NodeError::Json(_) => "The provider returned a response Cuttlefish could not read.",
+        _ => {
+            "Cuttlefish could not save or synchronize this turn. Inspect the saved session before continuing."
+        }
+    }
+}
+
+fn configure_codex(process: &mut Command, tool_binary: &std::path::Path, tool_args: &[String]) {
+    process.args([
+        "app-server",
+        "-c",
+        "mcp_servers={}",
+        "-c",
+        "features.apps=false",
+        "-c",
+        "features.plugins=false",
+        "-c",
+        "features.multi_agent=false",
+        "-c",
+        "skills.include_instructions=false",
+        "-c",
+        "tool_output_token_limit=2000",
+    ]);
+    process
+        .arg("-c")
+        .arg(format!(
+            "mcp_servers.cuttlefish.command={}",
+            json!(tool_binary)
+        ))
+        .arg("-c")
+        .arg(format!("mcp_servers.cuttlefish.args={}", json!(tool_args)));
+    // Only these native, authenticated operations inherit the task's
+    // existing collaboration permission; all other MCP tools stay absent.
+    process.arg("-c").arg("mcp_servers.cuttlefish.enabled_tools=[\"cuttlefish_agents\",\"cuttlefish_delegate\",\"cuttlefish_task\"]");
+    for name in [
+        "cuttlefish_agents",
+        "cuttlefish_delegate",
+        "cuttlefish_task",
+    ] {
+        process.arg("-c").arg(format!(
+            "mcp_servers.cuttlefish.tools.{name}.approval_mode=\"approve\""
+        ));
     }
 }

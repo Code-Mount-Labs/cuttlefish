@@ -7,7 +7,7 @@ registered router; agent-only enrollment requires that router to be ready.
 ## Install a release
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.7/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.8/install.sh | sh
 ```
 
 Linux and macOS releases include ARM64 and x86-64 binaries. Windows installation

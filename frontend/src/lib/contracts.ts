@@ -72,6 +72,7 @@ export const phaseSchema = z.enum([
   "connecting",
   "submitted",
   "working",
+  "commentary",
   "reading_files",
   "writing_files",
   "running_command",
@@ -89,6 +90,7 @@ export const activityEventSchema = z.object({
   provider: providerSchema,
   phase: phaseSchema,
   at_ms: z.number(),
+  summary: z.string().max(2000).nullish(),
 });
 export const activitySchema = z.object({
   events: z.array(activityEventSchema),
@@ -114,6 +116,8 @@ export const configSchema = z.object({
       attachments: z.boolean().optional(),
       activity: z.boolean().optional(),
       updates: z.boolean().optional(),
+      followups: z.boolean().optional(),
+      collaboration: z.boolean().optional(),
     })
     .optional(),
   database: z.object({
@@ -132,3 +136,18 @@ export type Turn = z.infer<typeof turnSchema>;
 export type ActivityEvent = z.infer<typeof activityEventSchema>;
 export type Phase = z.infer<typeof phaseSchema>;
 export type Config = z.infer<typeof configSchema>;
+
+export const childTaskSchema = z.object({
+  task_id: z.string(),
+  thread_id: z.string(),
+  node_id: z.string().nullable(),
+  state: z.enum(["planned", "queued", "claimed", "completed"]),
+  title: z.string(),
+  workspace: z.string().nullable(),
+  provider: providerSchema.nullable(),
+  platform: z.string().nullable(),
+  outcome: z
+    .object({ type: z.enum(["completed", "rejected"]) })
+    .passthrough()
+    .nullish(),
+});

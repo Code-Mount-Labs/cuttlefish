@@ -170,10 +170,11 @@ async fn affinity_survives_replicas_and_restart_requires_confirmed_cancellation(
             _ => unreachable!(),
         },
     };
-    assert!(matches!(
-        service.submit(&a, follow.clone()).await,
-        Err(Error::RoutingConflict(_))
-    ));
+    let queued = service
+        .submit(&a, follow.clone())
+        .await
+        .expect("durable follow-up");
+    assert_eq!(queued.state, DeliveryState::Queued);
     assert_eq!(
         f.store
             .poll_dispatch(&a, &poll())

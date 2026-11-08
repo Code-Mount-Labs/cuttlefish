@@ -40,6 +40,22 @@ async fn external_provider_failure_is_durable_uncertainty_not_a_replayable_rejec
                 crate::model::CommandStatus::Uncertain
             );
         }
+        if !fail_save {
+            f.journal
+                .interrupted(id(4), &instance().to_string(), "worker exited")
+                .await
+                .expect("reap");
+            assert!(
+                f.journal
+                    .session(id(4))
+                    .await
+                    .expect("session")
+                    .expect("saved")
+                    .last_error
+                    .expect("reason")
+                    .contains("unknown effects")
+            );
+        }
         assert!(f.journal.pending_events().await.expect("outbox").is_empty());
     }
 }

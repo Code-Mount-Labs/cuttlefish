@@ -166,7 +166,7 @@ impl Machine {
         RoutingService::new(store, Arc::new(self.clone()))
             .submit(&token, request)
             .await
-            .map_err(|_| Error::Dependency("message_not_accepted_check_agent_and_pending_turn"))
+            .map_err(|error| chat_error(&error))
     }
 }
 fn execution_config(
@@ -281,5 +281,34 @@ impl Machine {
             .conversation_activity(&token, thread)
             .await
             .map_err(|_| Error::Dependency("activity_unavailable"))
+    }
+}
+
+impl Machine {
+    /// Read the child work that belongs to this conversation.
+    ///
+    /// # Errors
+    /// Reports unavailable routing storage or authorization failure.
+    pub async fn chat_tasks(&self, thread: ThreadId) -> Result<Vec<Value>, Error> {
+        let (store, token) = self.chat_store().await?;
+        store
+            .conversation_tasks(&token, thread)
+            .await
+            .map_err(|_| Error::Dependency("Delegated task details are temporarily unavailable."))
+    }
+}
+
+fn chat_error(error: &orchestrator_coordinator::Error) -> Error {
+    match error {
+        orchestrator_coordinator::Error::NoCapacity => Error::Invalid(
+            "No available agent can run this workspace right now. Check that its agent is online, or wait for an active task to finish.",
+        ),
+        orchestrator_coordinator::Error::RoutingConflict(message) => Error::Invalid(message),
+        orchestrator_coordinator::Error::Unresolved => Error::Dependency(
+            "The previous task has an uncertain result. Check its activity before restarting; it will not be repeated automatically.",
+        ),
+        _ => Error::Dependency(
+            "The router could not accept this message. Your message is saved; retry when the connection is restored.",
+        ),
     }
 }

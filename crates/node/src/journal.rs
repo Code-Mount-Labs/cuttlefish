@@ -356,7 +356,7 @@ impl Journal {
         reason: &str,
     ) -> Result<(), NodeError> {
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
-        let changed = sqlx::query("UPDATE local_sessions SET state=?,last_error=? WHERE session_id=? AND instance_id=? AND state <> 'stopped'")
+        let changed = sqlx::query("UPDATE local_sessions SET state=?,last_error=CASE WHEN state='interrupted' AND last_error IS NOT NULL THEN last_error ELSE ? END WHERE session_id=? AND instance_id=? AND state <> 'stopped'")
             .bind(state).bind(reason).bind(id.to_string()).bind(instance).execute(&mut *tx).await?.rows_affected();
         if changed != 0 {
             sqlx::query("UPDATE command_receipts SET status='uncertain' WHERE session_id=? AND status IN ('queued','executing')")
@@ -467,7 +467,7 @@ impl Journal {
         .fetch_all(&mut *tx)
         .await?;
         let active_sessions =
-            sqlx::query_scalar("SELECT count(*) FROM local_sessions WHERE state <> 'stopped'")
+            sqlx::query_scalar("SELECT count(*) FROM local_sessions s WHERE s.state <> 'stopped' AND EXISTS(SELECT 1 FROM command_receipts c WHERE c.session_id=s.session_id AND c.status IN ('queued','executing','uncertain'))")
                 .fetch_one(&mut *tx)
                 .await?;
         Ok(orchestrator_protocol::routing::DispatchPoll {

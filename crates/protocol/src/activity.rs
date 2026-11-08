@@ -14,6 +14,8 @@ pub enum ActivityPhase {
     Submitted,
     /// Provider reported that it is processing the turn.
     Working,
+    /// A provider-authored, user-facing progress message (never private reasoning).
+    Commentary,
     /// Provider explicitly invoked a file-reading tool.
     ReadingFiles,
     /// Provider explicitly invoked a file-writing tool.
@@ -50,4 +52,7 @@ pub struct ExecutionActivity {
     pub phase: ActivityPhase,
     /// Node-observed Unix time in milliseconds.
     pub at_ms: i64,
+    /// Optional public progress text, bounded to 2000 UTF-8 bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
 }

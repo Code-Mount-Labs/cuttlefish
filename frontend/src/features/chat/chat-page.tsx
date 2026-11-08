@@ -18,6 +18,7 @@ import { activityState, providerLabel } from "../../lib/activity";
 import { useChat } from "./use-chat";
 import { Message } from "./message";
 import { TaskActivity } from "./activity";
+import { DelegatedTasks } from "./delegated-tasks";
 import { Composer } from "./composer";
 export function ChatPage({
   config,
@@ -31,7 +32,11 @@ export function ChatPage({
   onLogout: () => void;
 }) {
   const [section, setSection] = useState<ChatSection>("chats");
-  const chat = useChat(active, config.features?.activity === true);
+  const chat = useChat(
+    active,
+    config.features?.activity === true,
+    config.features?.collaboration === true,
+  );
   const [away, setAway] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
   function navigateSection(next: ChatSection) {
@@ -56,7 +61,8 @@ export function ChatPage({
   const turns = chat.turns.data ?? [],
     events = chat.activity.data?.events ?? [],
     lastSeen = chat.activity.data?.last_seen_ms ?? null;
-  const latest = turns.at(-1),
+  const latest =
+      turns.find((turn) => turn.state !== "completed") ?? turns.at(-1),
     state = latest
       ? activityState(
           latest,
@@ -164,6 +170,11 @@ export function ChatPage({
             {!chat.thread && (
               <h2 id="chat-welcome">What would you like to do?</h2>
             )}
+            <DelegatedTasks
+              tasks={chat.children.data ?? []}
+              error={!!chat.children.error}
+              onOpen={openChat}
+            />
             <div
               id="messages"
               role="log"
@@ -231,7 +242,7 @@ export function ChatPage({
             locked={locked}
             disabled={
               chat.sending ||
-              chat.busy ||
+              (chat.busy && !config.features?.followups) ||
               chat.ended ||
               !chat.workspace ||
               !!chat.queryError
@@ -239,6 +250,7 @@ export function ChatPage({
             pending={!!chat.pending}
             status={status}
             attachments={config.features?.attachments === true}
+            working={chat.busy}
           />
         </div>
       </main>

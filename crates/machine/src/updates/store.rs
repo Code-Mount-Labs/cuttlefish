@@ -6,6 +6,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Explicit unlock prevents a concurrently forked child retaining ownership
+/// between fork and exec after the original guard has been dropped.
+#[derive(Debug)]
+pub(super) struct Lock(File);
+impl Drop for Lock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct Store {
     pub directory: PathBuf,
@@ -43,7 +53,7 @@ impl Store {
             encode: serde_json::to_vec,
         })
     }
-    pub fn lock(&self) -> Result<Option<File>, Error> {
+    pub fn lock(&self) -> Result<Option<Lock>, Error> {
         lock(&self.directory.join("worker.lock"))
     }
     pub fn read(&self) -> Result<Record, Error> {
@@ -73,13 +83,13 @@ fn secure_directory(path: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
 }
-pub(super) fn lock(path: &Path) -> Result<Option<File>, Error> {
+pub(super) fn lock(path: &Path) -> Result<Option<Lock>, Error> {
     lock_with(path, File::try_lock)
 }
 fn lock_with(
     path: &Path,
     acquire: fn(&File) -> Result<(), std::fs::TryLockError>,
-) -> Result<Option<File>, Error> {
+) -> Result<Option<Lock>, Error> {
     reject_link(path)?;
     let mut options = OpenOptions::new();
     options.create(true).truncate(false).read(true).write(true);
@@ -90,7 +100,7 @@ fn lock_with(
     }
     let file = options.open(path)?;
     match acquire(&file) {
-        Ok(()) => Ok(Some(file)),
+        Ok(()) => Ok(Some(Lock(file))),
         Err(std::fs::TryLockError::WouldBlock) => Ok(None),
         Err(error) => Err(std::io::Error::from(error).into()),
     }

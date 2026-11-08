@@ -1,0 +1,1 @@
+Discover Cuttlefish group agents and configured workspaces before coordinating work. Inspect platform, capabilities, availability and permissions. A registered provider is not proof that a platform SDK is installed; ask the child to verify prerequisites. Results contain no machine credentials.

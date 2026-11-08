@@ -361,8 +361,8 @@ async fn test_run(cli: Cli, executable: fn() -> io::Result<PathBuf>) -> Result<(
     run_with_io(
         cli,
         executable,
-        &b"{\"type\":\"shutdown\"}\n"[..],
-        Vec::new(),
+        &mut &b"{\"type\":\"shutdown\"}\n"[..],
+        &mut Vec::new(),
     )
     .await
 }
@@ -697,6 +697,13 @@ async fn worker_mode_resolves_local_provider_and_preserves_uncertain_execution()
                 instance: common::instance().to_string(),
             },
         };
+        assert!(
+            test_run(mode(), || Err(std::io::Error::other(
+                "executable unavailable"
+            )))
+            .await
+            .is_err()
+        );
         let result = test_run(mode(), std::env::current_exe).await;
         assert_eq!(result.is_err(), fail);
         assert!(
@@ -710,5 +717,32 @@ async fn worker_mode_resolves_local_provider_and_preserves_uncertain_execution()
             .expect("fault");
         assert!(test_run(mode(), std::env::current_exe).await.is_err());
         raw.close().await;
+    }
+}
+
+#[tokio::test]
+async fn tool_server_cli_attaches_only_to_an_existing_journal() {
+    let f = common::Fixture::new().await;
+    for path in [
+        f.journal.path().to_path_buf(),
+        f.temp.path().join("missing"),
+    ] {
+        let exists = path.exists();
+        let mut output = Vec::new();
+        let args = Cli {
+            mode: Mode::Tools {
+                journal: path,
+                parent: common::id(6),
+                instance: common::instance().to_string(),
+            },
+        };
+        let result = run_with_io(
+            args,
+            std::env::current_exe,
+            &mut std::io::Cursor::new(b"{\"id\":1,\"method\":\"initialize\"}\n"),
+            &mut output,
+        )
+        .await;
+        assert_eq!(result.is_ok(), exists);
     }
 }

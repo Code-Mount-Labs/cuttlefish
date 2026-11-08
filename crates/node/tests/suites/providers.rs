@@ -37,7 +37,12 @@ async fn provider_process_failures_are_uncertain_and_survive_journal_reopen() {
             std::fs::write(&config.executable, "#!/bin/sh\nexit 1\n").expect("provider");
         }
         f.accepted().await;
-        let adapter = LocalAgent::new(f.journal.clone(), instance().to_string(), config);
+        let adapter = LocalAgent::new(
+            f.journal.clone(),
+            instance().to_string(),
+            config,
+            std::env::current_exe().expect("worker executable"),
+        );
         assert!(
             worker::run(&f.journal, id(4), &instance().to_string(), adapter)
                 .await
@@ -73,7 +78,12 @@ async fn public_provider_adapter_rejects_missing_binding_failed_exit_and_invalid
         LocalProvider::Claude,
         &format!("cat >/dev/null\nprintf '%s\\n' '{response}'\nexit 1"),
     );
-    let mut agent = LocalAgent::new(f.journal.clone(), instance().to_string(), config);
+    let mut agent = LocalAgent::new(
+        f.journal.clone(),
+        instance().to_string(),
+        config,
+        std::env::current_exe().expect("worker executable"),
+    );
     assert!(agent.execute(&send(10)).await.is_err());
     assert!(agent.execute(&start()).await.is_err());
     let f = Fixture::new().await;
@@ -89,7 +99,12 @@ async fn public_provider_adapter_rejects_missing_binding_failed_exit_and_invalid
     );
     for bytes in [vec![255], vec![]] {
         std::fs::write(&config.instructions, bytes).expect("invalid instructions");
-        let mut agent = LocalAgent::new(f.journal.clone(), instance().to_string(), config.clone());
+        let mut agent = LocalAgent::new(
+            f.journal.clone(),
+            instance().to_string(),
+            config.clone(),
+            std::env::current_exe().expect("worker executable"),
+        );
         assert!(agent.execute(&start()).await.is_err());
     }
     f.journal.close().await;
@@ -156,4 +171,49 @@ async fn public_attachment_api_rejects_bad_inputs_and_corrupt_outbox_content() {
     };
     assert!(remote.synchronize(&f.journal, &profile).await.is_err());
     pool.close().await;
+}
+
+#[tokio::test]
+async fn packaged_tool_server_handles_success_missing_journal_and_invalid_frames() {
+    use std::io::Write;
+    let f = Fixture::new().await;
+    for (path, input, success) in [
+        (
+            f.journal.path().to_path_buf(),
+            "{\"id\":1,\"method\":\"initialize\"}\n",
+            true,
+        ),
+        (f.journal.path().to_path_buf(), "invalid\n", false),
+        (f.temp.path().join("missing"), "", false),
+    ] {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_orchestrator-node"))
+            .args(["tools", "--journal"])
+            .arg(path)
+            .args([
+                "--parent",
+                &start().command_id.to_string(),
+                "--instance",
+                "test",
+            ])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("tools");
+        child
+            .stdin
+            .take()
+            .expect("stdin")
+            .write_all(input.as_bytes())
+            .expect("write");
+        let reply = child.wait_with_output().expect("reply");
+        assert_eq!(reply.status.success(), success);
+        if success {
+            assert!(
+                String::from_utf8(reply.stdout)
+                    .expect("utf8")
+                    .contains("protocolVersion")
+            );
+        }
+    }
 }

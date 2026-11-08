@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "../../lib/schema";
-import { local, errorMessage } from "../../lib/api";
+import { ApiError, local, errorMessage } from "../../lib/api";
 import {
   activitySchema,
+  childTaskSchema,
   conversationSchema,
   turnSchema,
   workspaceRowSchema,
@@ -17,7 +18,11 @@ import {
   uploadFiles,
   type DraftFile,
 } from "../../lib/files";
-export function useChat(enabled: boolean, activityEnabled: boolean) {
+export function useChat(
+  enabled: boolean,
+  activityEnabled: boolean,
+  collaborationEnabled = false,
+) {
   const cache = useQueryClient();
   const pending = usePendingRequest();
   const [thread, setThread] = useState<string | null>(
@@ -57,6 +62,13 @@ export function useChat(enabled: boolean, activityEnabled: boolean) {
     queryFn: ({ signal }) =>
       local("chat/" + thread + "/activity", activitySchema, { signal }),
     enabled: enabled && !!thread && activityEnabled,
+    refetchInterval: 2000,
+  });
+  const children = useQuery({
+    queryKey: ["children", thread],
+    queryFn: ({ signal }) =>
+      local("chat/" + thread + "/tasks", z.array(childTaskSchema), { signal }),
+    enabled: enabled && !!thread && collaborationEnabled,
     refetchInterval: 2000,
   });
   const current = conversations.data?.find((c) => c.thread_id === thread);
@@ -128,17 +140,24 @@ export function useChat(enabled: boolean, activityEnabled: boolean) {
           };
         }
         updatePending(request);
-        setText("");
-        setFiles([]);
       }
       setProgress("Sending task to your agent…");
       const reply = await local("chat", turnSchema, { body: request });
       updatePending(null);
       setText("");
+      setFiles([]);
       setThread(reply.request.thread_id);
       history.replaceState(null, "", "#chat/" + reply.request.thread_id);
     },
-    onError: (e) => setError(errorMessage(e)),
+    onError: (e) => {
+      setError(errorMessage(e));
+      if (e instanceof ApiError && e.status === 400) {
+        const rejected = readPending();
+        if (rejected && "message" in rejected.action)
+          setText(rejected.action.message.text);
+        updatePending(null);
+      }
+    },
     onSettled: async () => {
       setProgress("");
       await Promise.all([
@@ -189,6 +208,7 @@ export function useChat(enabled: boolean, activityEnabled: boolean) {
     conversations,
     turns,
     activity,
+    children,
     pending: unresolved,
     sending: send.isPending,
     send: () => send.mutate(false),

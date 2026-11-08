@@ -89,11 +89,7 @@ async fn finish_execution(
         Err(error) => {
             if uncertain {
                 journal
-                    .interrupted(
-                        command.target.session_id,
-                        instance,
-                        "provider failed; external effects may have occurred",
-                    )
+                    .interrupted(command.target.session_id, instance, &error)
                     .await?;
                 return Err(NodeError::Rejected(
                     "provider execution uncertain; automatic replay refused",

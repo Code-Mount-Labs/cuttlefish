@@ -8,6 +8,7 @@ export function activityLabel(phase: Phase, provider: Provider) {
     connecting: `Connecting to ${name}…`,
     submitted: `Passed task to ${name}`,
     working: `${name} is working…`,
+    commentary: `${name} shared an update`,
     reading_files: `${name} is reading files…`,
     writing_files: `${name} is updating files…`,
     running_command: `${name} is running a command…`,
@@ -31,7 +32,8 @@ export function activityState(
     done = turn.state === "completed",
     failed = turn.outcome?.type === "rejected",
     attention = !done && latest?.phase === "needs_attention",
-    offline = !done && lastSeen !== null && now - lastSeen > 20000;
+    offline = !done && lastSeen !== null && now - lastSeen > 20000,
+    quiet = !done && !!latest && now - latest.at_ms > 60000;
   return {
     title: done
       ? failed
@@ -46,13 +48,19 @@ export function activityState(
             : turn.state === "queued"
               ? "Waiting for an available agent…"
               : "Handed to your agent · waiting for an update…",
+    lastUpdate: latest
+      ? `Last activity ${elapsed(now - latest.at_ms)} ago`
+      : "Waiting for the first update",
+    quiet,
     hint: attention
-      ? "Execution stopped with an uncertain result. Check the agent before retrying; this task won’t be replayed automatically."
+      ? `${latest?.summary || "The provider stopped before confirming a result."} Work already saved has been kept. Review the workspace before starting a new session; this turn won’t be repeated automatically.`
       : offline
         ? "The task may still be running. Updates will resume when the agent reconnects."
-        : done
-          ? ""
-          : "You can leave this chat and return. Your progress is saved.",
+        : quiet
+          ? "No new provider activity for over a minute. Silence does not confirm whether the task is progressing. You can send a follow-up; it will run after the current turn."
+          : done
+            ? ""
+            : "You can leave this chat and return. Your progress is saved.",
     active: !done && !attention && !offline,
     tone:
       failed || attention
@@ -63,4 +71,35 @@ export function activityState(
             ? "complete"
             : "active",
   };
+}
+
+export function elapsed(ms: number) {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return seconds < 60
+    ? `${seconds}s`
+    : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+export function activitySteps(events: ActivityEvent[]) {
+  const meaningful = events.filter(
+    (event, index) =>
+      !["working", "waiting"].includes(event.phase) ||
+      (event.phase === "working" &&
+        (index === 0 || event.provider !== events[index - 1].provider)),
+  );
+  return meaningful.reduce<(ActivityEvent & { count: number })[]>(
+    (steps, event) => {
+      const prior = steps.at(-1);
+      if (
+        prior &&
+        prior.phase === event.phase &&
+        prior.summary === event.summary &&
+        prior.provider === event.provider
+      ) {
+        prior.count++;
+        prior.at_ms = event.at_ms;
+      } else steps.push({ ...event, count: 1 });
+      return steps;
+    },
+    [],
+  );
 }

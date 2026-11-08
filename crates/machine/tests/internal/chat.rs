@@ -43,6 +43,7 @@ async fn chat_submission_history_and_workspace_configuration_use_authenticated_r
         "/api/local/chat/workspaces",
         "/api/local/chat/00000000-0000-0000-0000-000000000001",
         "/api/local/chat/00000000-0000-0000-0000-000000000001/activity",
+        "/api/local/chat/00000000-0000-0000-0000-000000000001/tasks",
     ] {
         assert!(
             !request(&app, path, None, Some(&cookie), None)
@@ -109,20 +110,8 @@ async fn chat_submission_history_and_workspace_configuration_use_authenticated_r
     assert!(machine.chats().await.expect("empty").is_empty());
     let journal = advertise_workspace(&machine, &store).await;
     check_conversation(&machine, &app, &cookie).await;
-    let mut invalid_workspace = workspace();
-    invalid_workspace.name.clear();
-    assert!(
-        !request(
-            &app,
-            "/api/local/workspaces",
-            Some(json!(invalid_workspace)),
-            Some(&cookie),
-            Some("http://127.0.0.1:8080")
-        )
-        .await
-        .0
-        .is_success()
-    );
+    check_child_route(&app, &cookie).await;
+    check_invalid_workspace(&app, &cookie).await;
     check_storage_errors(&machine, &app, &cookie, &database.url).await;
     journal.close().await;
     machine.close().await;
@@ -499,6 +488,7 @@ async fn check_storage_errors(machine: &Machine, app: &axum::Router, cookie: &st
         "/api/local/chat",
         "/api/local/chat/00000000-0000-0000-0000-000000000001",
         "/api/local/chat/00000000-0000-0000-0000-000000000001/activity",
+        "/api/local/chat/00000000-0000-0000-0000-000000000001/tasks",
     ] {
         assert!(
             !request(app, path, None, Some(cookie), None)
@@ -535,6 +525,7 @@ async fn check_unauthenticated_routes(app: &axum::Router) {
         "/api/local/chat/workspaces",
         "/api/local/chat/00000000-0000-0000-0000-000000000001",
         "/api/local/chat/00000000-0000-0000-0000-000000000001/activity",
+        "/api/local/chat/00000000-0000-0000-0000-000000000001/tasks",
     ] {
         assert_eq!(
             request(app, path, None, None, None).await.0,
@@ -834,4 +825,52 @@ async fn automation_facade_handles_missing_setup_and_storage_failures() {
     journal.close().await;
     machine.close().await;
     database.close().await;
+}
+
+#[test]
+fn chat_rejections_are_actionable_and_preserve_uncertainty() {
+    use orchestrator_coordinator::Error as Routing;
+    for (error, expected) in [
+        (Routing::NoCapacity, "No available agent"),
+        (
+            Routing::RoutingConflict("Session is ending"),
+            "Session is ending",
+        ),
+        (Routing::Unresolved, "uncertain result"),
+        (Routing::Model, "router could not accept"),
+    ] {
+        assert!(chat_error(&error).to_string().contains(expected));
+    }
+}
+
+async fn check_child_route(app: &axum::Router, cookie: &str) {
+    assert_eq!(
+        request(
+            app,
+            "/api/local/chat/00000000-0000-0000-0000-000000000001/tasks",
+            None,
+            Some(cookie),
+            None
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+}
+
+async fn check_invalid_workspace(app: &axum::Router, cookie: &str) {
+    let mut invalid_workspace = workspace();
+    invalid_workspace.name.clear();
+    assert!(
+        !request(
+            app,
+            "/api/local/workspaces",
+            Some(json!(invalid_workspace)),
+            Some(cookie),
+            Some("http://127.0.0.1:8080")
+        )
+        .await
+        .0
+        .is_success()
+    );
 }

@@ -54,7 +54,7 @@ async fn activity_is_fenced_deduplicated_bounded_and_recovered_after_restart() {
         .fetch_one(&reopened.pool)
         .await
         .expect("count");
-    assert_eq!(count, 256);
+    assert_eq!(count, 302);
     reopened.expire(0).await.expect("worker lost");
     let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let observed = received.clone();
@@ -88,7 +88,7 @@ async fn activity_is_fenced_deduplicated_bounded_and_recovered_after_restart() {
     assert!(reopened.pending_activity().await.expect("acked").is_empty());
     {
         let events = received.lock().expect("lock");
-        assert_eq!(events.len(), 257);
+        assert_eq!(events.len(), 303);
         assert_eq!(
             events.last().expect("last").phase,
             ActivityPhase::NeedsAttention
@@ -303,4 +303,81 @@ async fn broken_artifact_storage_prevents_publishing_a_completion_after_activity
             .await
             .is_err()
     );
+}
+#[tokio::test]
+async fn acknowledged_history_is_pruned_without_stopping_future_progress() {
+    let f = running().await;
+    for sequence in 0..300 {
+        f.journal
+            .record_observation(
+                id(6),
+                &instance().to_string(),
+                LocalProvider::Codex,
+                ActivityPhase::Commentary,
+                Some(&format!("Milestone {sequence}")),
+            )
+            .await
+            .expect("progress");
+        sqlx::query("UPDATE execution_activity SET acknowledged=1")
+            .execute(&f.journal.pool)
+            .await
+            .expect("synchronized");
+    }
+    f.journal
+        .record_observation(
+            id(6),
+            &instance().to_string(),
+            LocalProvider::Codex,
+            ActivityPhase::Commentary,
+            Some("Still progressing after 300 observations"),
+        )
+        .await
+        .expect("fresh progress");
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM execution_activity")
+        .fetch_one(&f.journal.pool)
+        .await
+        .expect("count");
+    assert_eq!(count, 256);
+    let pending = f.journal.pending_activity().await.expect("pending");
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].sequence, 301);
+}
+
+#[tokio::test]
+async fn failed_activity_pruning_rolls_back_the_new_observation() {
+    let f = running().await;
+    sqlx::query("CREATE TRIGGER reject_prune BEFORE DELETE ON execution_activity BEGIN SELECT RAISE(ABORT,'prune failed'); END").execute(&f.journal.pool).await.expect("fault");
+    for i in 0..256 {
+        f.journal
+            .record_observation(
+                id(6),
+                &instance().to_string(),
+                LocalProvider::Codex,
+                ActivityPhase::Commentary,
+                Some(&format!("Update {i}")),
+            )
+            .await
+            .expect("record");
+    }
+    sqlx::query("UPDATE execution_activity SET acknowledged=1")
+        .execute(&f.journal.pool)
+        .await
+        .expect("ack");
+    assert!(
+        f.journal
+            .record_observation(
+                id(6),
+                &instance().to_string(),
+                LocalProvider::Codex,
+                ActivityPhase::Commentary,
+                Some("New update")
+            )
+            .await
+            .is_err()
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM execution_activity")
+        .fetch_one(&f.journal.pool)
+        .await
+        .expect("count");
+    assert_eq!(count, 256);
 }

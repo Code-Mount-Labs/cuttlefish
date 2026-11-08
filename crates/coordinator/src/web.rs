@@ -29,6 +29,7 @@ pub fn router(store: Store) -> Router {
 pub fn router_with_selector(store: Store, selector: Arc<dyn Selector>) -> Router {
     let routing = Router::new()
         .route("/v1/tasks", post(submit))
+        .route("/v1/agent-tools", post(agent_tool))
         .route("/v1/threads/{thread}/failover", post(failover))
         .merge(crate::collaboration_web::routing_router())
         .with_state(RoutingService::new(store.clone(), selector));
@@ -198,4 +199,12 @@ async fn record_activity(
     Ok(Json(
         store.record_activity(&token(&headers)?, &events).await?,
     ))
+}
+
+async fn agent_tool(
+    State(service): State<RoutingService>,
+    headers: HeaderMap,
+    Json(request): Json<orchestrator_protocol::tools::ToolRequest>,
+) -> Result<Json<serde_json::Value>, Error> {
+    Ok(Json(service.agent_tool(&token(&headers)?, &request).await?))
 }

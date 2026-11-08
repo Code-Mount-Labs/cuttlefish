@@ -74,3 +74,20 @@ impl Store {
         Ok(rows.into_iter().map(|row| row.0).collect())
     }
 }
+
+impl Store {
+    /// Read child task placement and execution for one authenticated conversation.
+    ///
+    /// # Errors
+    /// Reports authentication and storage failures.
+    pub async fn conversation_tasks(
+        &self,
+        token: &NodeToken,
+        thread: ThreadId,
+    ) -> Result<Vec<Value>, Error> {
+        let (group, _) = self.identity(token).await?;
+        let rows:Vec<Json<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('task_id',t.task_id,'thread_id',t.thread_id,'node_id',d.node_id,'state',COALESCE(d.state,'planned'),'title',s#>>'{spec,acceptance}','workspace',w.workspace->>'name','provider',w.workspace->>'provider','platform',n.profile->>'platform','outcome',d.outcome) FROM goals g JOIN goal_tasks t ON t.group_id=g.group_id AND t.goal_id=g.goal_id CROSS JOIN LATERAL jsonb_array_elements(g.snapshot->'tasks') s LEFT JOIN dispatches d ON d.group_id=t.group_id AND d.command_id=t.command_id LEFT JOIN provider_workspaces w ON w.group_id=t.group_id AND w.workspace_id=(s#>>'{spec,request,action,workspace_id}')::uuid LEFT JOIN nodes n ON n.group_id=t.group_id AND n.node_id=d.node_id WHERE g.group_id=$1 AND g.thread_id=$2 AND s#>>'{spec,request,command_id}'=t.command_id::text ORDER BY t.task_id")
+            .bind(Uuid::from(group)).bind(Uuid::from(thread)).fetch_all(&self.pool).await?;
+        Ok(rows.into_iter().map(|row| row.0).collect())
+    }
+}

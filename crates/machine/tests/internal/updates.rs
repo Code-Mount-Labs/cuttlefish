@@ -322,12 +322,13 @@ async fn release_checks_are_bounded_and_persist_failures() {
 async fn public_actions_and_cli_observe_detached_helper_results() {
     let (_temp, manager) = fixture();
     service(&manager);
-    let status = manager
+    let (_initial_temp, initial_manager) = fixture();
+    service(&initial_manager);
+    let status = initial_manager
         .act(Action::Restart)
         .await
         .expect("restart accepted");
     assert_eq!(status.job.expect("job").phase, Phase::Queued);
-    tokio::time::sleep(Duration::from_millis(20)).await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
@@ -370,11 +371,11 @@ async fn public_actions_and_cli_observe_detached_helper_results() {
             "#!/bin/sh\nsleep 0.05\ncat > \"$2/updates/done.json\" <<'JSON'\n{completed}\nJSON\nmv \"$2/updates/done.json\" \"$2/updates/status.json\"\n"
         );
         std::fs::write(&manager.executable, script).expect("helper");
+        let result = cli(&manager, false, &url, 500, Duration::from_millis(10)).await;
         assert_eq!(
-            cli(&manager, false, &url, 100, Duration::from_millis(10))
-                .await
-                .is_ok(),
-            outcome == Phase::Complete
+            result.is_ok(),
+            outcome == Phase::Complete,
+            "helper result: {result:?}"
         );
     }
     task.abort();

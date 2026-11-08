@@ -20,6 +20,7 @@ export function Composer({
   pending,
   status,
   attachments,
+  working = false,
 }: {
   text: string;
   onText: (value: string) => void;
@@ -32,6 +33,7 @@ export function Composer({
   pending: boolean;
   status: string;
   attachments: boolean;
+  working?: boolean;
 }) {
   const picker = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -96,7 +98,7 @@ export function Composer({
             id="chat-message"
             value={text}
             onChange={(e) => onText(e.target.value)}
-            placeholder="Message Cuttlefish"
+            placeholder={working ? "Add a follow-up…" : "Message Cuttlefish"}
             maxLength={4000}
             required={!pending && !files.length}
             readOnly={locked}
@@ -118,6 +120,11 @@ export function Composer({
               }
             }}
           />
+          {working && (
+            <p className="composer-queue-hint">
+              Follow-ups are saved and run after the current turn.
+            </p>
+          )}
           <InputGroupAddon
             align="block-end"
             className="composer-actions justify-between px-3 pt-1.5 pb-2.5"
@@ -149,7 +156,13 @@ export function Composer({
               type="submit"
               size="icon"
               disabled={!canSend}
-              aria-label={pending ? "Retry same request" : "Send message"}
+              aria-label={
+                pending
+                  ? "Retry same request"
+                  : working
+                    ? "Queue follow-up"
+                    : "Send message"
+              }
             >
               {pending ? <RotateCcw /> : <ArrowUp />}
             </Button>

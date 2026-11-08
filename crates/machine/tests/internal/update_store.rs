@@ -7,8 +7,15 @@ fn journal_is_private_atomic_and_lock_is_released_when_owner_dies() {
     assert!(store.read().expect("empty").job.is_none());
     let guard = store.lock().expect("lock").expect("acquired");
     assert!(store.lock().expect("busy").is_none());
+    let inherited = guard.0.try_clone().expect("inherited descriptor");
     drop(guard);
-    assert!(store.lock().expect("released").is_some());
+    assert!(
+        store
+            .lock()
+            .expect("released despite inherited descriptor")
+            .is_some()
+    );
+    drop(inherited);
     store
         .save_job(super::super::tests::job(super::super::Phase::Queued))
         .expect("job");

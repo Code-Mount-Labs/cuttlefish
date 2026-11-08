@@ -15,15 +15,20 @@ pub trait Selector: Debug + Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<NodeId, Error>> + Send + 'a>>;
 }
 
-/// Default when model credentials are not configured; affinity still works.
+/// Without model credentials, route only an unambiguous single candidate.
 #[derive(Debug)]
 pub struct Unconfigured;
 impl Selector for Unconfigured {
     fn choose<'a>(
         &'a self,
-        _: &'a RoutingContext,
+        context: &'a RoutingContext,
     ) -> Pin<Box<dyn Future<Output = Result<NodeId, Error>> + Send + 'a>> {
-        Box::pin(async { Err(Error::Model) })
+        Box::pin(async {
+            match context.candidates.as_slice() {
+                [candidate] => Ok(candidate.node_id),
+                _ => Err(Error::Model),
+            }
+        })
     }
 }
 

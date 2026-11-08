@@ -57,12 +57,48 @@ Messages and durable activity refresh by polling. The activity timeline reports
 preparing, connecting, provider handoff, observed tool use, waiting, and saving
 results. Tool labels come from provider events, not timed animations or inferred
 percentages. Raw arguments, file contents, and reasoning are never included.
-Consecutive duplicate stages are suppressed; each turn keeps up to 256 activity
-records, plus a recovery notice if execution becomes uncertain. Node-local SQLite
+Public provider commentary supplies short descriptions of actual work. Generic
+working/waiting transitions are omitted from the timeline; repeated tool stages
+are grouped and recent activity is expanded on demand. The UI reports the last
+activity time separately from agent connectivity. Silence is not proof of a stall.
+Activity continues throughout long turns: the local journal prunes only older,
+acknowledged events after retaining the latest 256, and never drops unsent events. Node-local SQLite
 retains the outbox until the authenticated router acknowledges the exact sequence
 batch. Reopening the chat restores the timeline from the execution PostgreSQL.
 Missing heartbeats are shown as interrupted connections, not proof that a task
-stopped. Recovered uncertainty is shown as requiring attention.
+stopped. Provider turns have no arbitrary ten-minute wall-clock cutoff. If a
+provider fails, a bounded explanation is saved without raw transport errors or
+private reasoning; already-written files are retained and uncertain effects are
+never automatically replayed.
+
+You can send a follow-up while a turn is working. It is saved immediately and
+runs in order after the current turn, in the same provider session. Up to 32
+unfinished messages may be pending per conversation. This is a durable queue,
+not mid-turn interruption. An already-interrupted turn rejects new follow-ups
+with an explanation rather than silently placing them in a blocked queue.
+Idle sessions remain resumable without consuming active execution capacity.
+
+## Collaboration
+
+Codex and Claude Code receive three native Cuttlefish tools: discover registered
+agents/workspaces, delegate a bounded task, and inspect its result. Tool requests
+are journaled before transport, retain their identities across retries, and are
+scoped to an authenticated executing parent. Child tasks appear in the parent
+chat and can be opened separately. They use the same durable dispatch and
+result paths as ordinary chats.
+
+The first version permits top-level delegation only. A child cannot recursively
+create more children, and a read-only parent cannot delegate into a workspace
+with write permissions. Registered platform/provider metadata does not prove
+that an SDK is installed; the child must verify prerequisites. Separate machines
+do not implicitly share a filesystem. Use returned artifacts, not assumed paths.
+
+Tool descriptions live in `prompts/collaboration/` and are copied to the
+installation's editable prompt directory without overwriting existing edits.
+Only these three native tools receive the existing task's collaboration
+permission; unrelated MCP integrations remain disabled. No provider credentials
+are placed in tool arguments. Upgrade the router and participating agents to the
+same release before using these tools.
 
 Token-by-token streaming, active-turn
 cancellation, conversation renaming/archiving, voice conversations, and a visual
@@ -126,9 +162,12 @@ require the installation origin. Managed relay access uses the same routes under
 | `GET /api/local/chat/workspaces` | Group workspace directory at the router |
 | `GET, POST /api/local/chat` | Recent conversations or idempotent task submission |
 | `GET /api/local/chat/{thread_id}` | Most recent 100 turns, in chronological order |
+| `GET /api/local/chat/{thread_id}/tasks` | Scoped delegated tasks and destinations |
 | `GET /api/local/chat/{thread_id}/activity` | Durable activity and last observed node heartbeat |
 | `POST /api/local/attachments` | Idempotent bounded chunk upload |
 | `GET /api/local/attachments/{id}/chunks/{index}` | Authenticated chunk download |
+
+The node-only `POST /v1/agent-tools` endpoint authenticates both the node and its executing parent.
 
 Node authentication uses the corresponding `/v1/workspaces` and `/v1/attachments`
 routes. Group identifiers alone never authorize access. The hosted platform and

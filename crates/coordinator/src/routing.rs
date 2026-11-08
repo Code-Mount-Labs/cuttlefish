@@ -15,7 +15,7 @@ use std::sync::Arc;
 /// Routing has only selection and persistence powers; execution lives on nodes.
 #[derive(Debug, Clone)]
 pub struct RoutingService {
-    store: Store,
+    pub(crate) store: Store,
     selector: Arc<dyn Selector>,
 }
 impl RoutingService {

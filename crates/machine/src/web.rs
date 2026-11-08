@@ -80,6 +80,7 @@ pub fn router(machine: Machine) -> Router {
         )
         .route("/api/local/chat/{thread}", get(chat))
         .route("/api/local/chat/{thread}/activity", get(chat_activity))
+        .route("/api/local/chat/{thread}/tasks", get(chat_tasks))
         .fallback(execution)
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(axum::middleware::map_response(headers))
@@ -205,7 +206,7 @@ async fn configuration(
     authorize(&machine, &headers, false).await?;
     let identity = machine.identity().await?;
     Ok(Json(
-        json!({"features":{"chat":true,"attachments":true,"activity":true,"automations":true,"updates":true},"group_id":identity.registration.group_id,"installation_id":identity.registration.installation_id,"name":identity.registration.name,"role":identity.registration.role,"database":machine.status().await?,"model":machine.model_status().await?,"remote":machine.remote_status().await?}),
+        json!({"features":{"chat":true,"attachments":true,"activity":true,"automations":true,"updates":true,"followups":true,"collaboration":true},"group_id":identity.registration.group_id,"installation_id":identity.registration.installation_id,"name":identity.registration.name,"role":identity.registration.role,"database":machine.status().await?,"model":machine.model_status().await?,"remote":machine.remote_status().await?}),
     ))
 }
 async fn database(
@@ -459,4 +460,13 @@ async fn update_action_with(
         StatusCode::ACCEPTED,
         Json(resolve(machine.directory())?.act(action).await?),
     ))
+}
+
+async fn chat_tasks(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+    Path(thread): Path<orchestrator_protocol::ids::ThreadId>,
+) -> Result<Json<Vec<serde_json::Value>>, Error> {
+    authorize(&machine, &headers, false).await?;
+    Ok(Json(machine.chat_tasks(thread).await?))
 }

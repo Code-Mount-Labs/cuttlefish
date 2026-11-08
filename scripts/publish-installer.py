@@ -63,11 +63,15 @@ with tempfile.TemporaryDirectory(prefix='cuttlefish-release-') as folder:
     assets.append(str(sums))
     hashes[sums.name] = hashlib.sha256(sums.read_bytes()).hexdigest()
     notes = root / 'notes.md'
-    notes.write_text(f'''Cuttlefish {tag} adds dashboard updates, background-service restart, and the `cuttlefish update` command.
+    notes.write_text(f'''Cuttlefish {tag} adds durable follow-ups, clearer live activity, and native Codex/Claude Code collaboration.
 
-Open **Settings → Updates** to check for a release, install it, or restart Cuttlefish. A detached updater verifies the archive and executable version before atomically selecting a complete release. Its durable journal resumes interrupted work and reports failures without replacing chats, settings, workspaces, edited prompts, databases, or provider sign-ins. The dashboard reconnects after service restart and offers an explicit reload button.
+Send a message while a task runs: it is saved and delivered in order after the current turn, using the existing provider session. The activity view shows public provider updates, grouped tool activity, last-update freshness, and delegated tasks. Codex and Claude Code can discover configured peers, delegate scoped work, and collect their results through authenticated, durable tools.
 
-New macOS setup starts the login service and opens the dashboard automatically. Use `setup --foreground` to opt out. Default installation adds `cuttlefish` to the command path for new terminals. Linux updates install the release and report when a manual foreground restart is required.
+Long-running provider turns are no longer killed at a fixed ten-minute deadline. Genuine interruptions retain saved files and report a bounded cause; uncertain external actions are never replayed automatically. An already interrupted task still requires review before continuing in a new session. Idle sessions no longer consume active execution slots. Explicit lock release also prevents brief false-busy states during concurrent process creation.
+
+Update the router and participating agents together for collaboration support. Three editable tool descriptions are added under `prompts/collaboration/`; existing prompt edits and provider sign-ins are preserved. Delegation does not grant new permissions or automatically share machine filesystems, and child agents cannot recursively delegate in this increment.
+
+The dashboard update/restart controls and `cuttlefish update` remain available. A detached updater verifies the archive and executable version before atomically selecting a complete release. The dashboard reconnects after restart and offers an explicit reload button.
 
 Create a group at https://platform-production-105c.up.railway.app, choose **Connect a machine**, then run:
 

@@ -2,6 +2,7 @@
 use super::*;
 use crate::test_support::{Fixture, id, instance, start};
 use orchestrator_protocol::execution::ProviderWorkspace;
+use std::time::Duration;
 fn config(f: &Fixture, provider: LocalProvider) -> ExecutionConfig {
     let directory = f
         .journal
@@ -35,6 +36,7 @@ async fn agent(provider: LocalProvider) -> (Fixture, LocalAgent) {
         f.journal.clone(),
         instance().to_string(),
         config(&f, provider),
+        std::env::current_exe().expect("worker executable"),
     );
     (f, adapter)
 }
@@ -228,7 +230,7 @@ async fn process_failures_never_become_successful_or_replayed_turns() {
     assert!(a.run(&start(), "hello").await.is_err());
     script(&mut a, "sleep 1");
     assert!(
-        a.run_with_timeout(&start(), "hello", Duration::from_millis(10))
+        tokio::time::timeout(Duration::from_millis(10), a.run(&start(), "hello"))
             .await
             .is_err()
     );
@@ -630,4 +632,150 @@ async fn provider_progress_storage_failures_are_explicit_and_never_report_succes
     let (_f, a) = agent(LocalProvider::Claude).await;
     sqlx::raw_sql("CREATE TRIGGER reject_binding BEFORE INSERT ON provider_bindings BEGIN SELECT RAISE(ABORT,'binding unavailable'); END").execute(&a.journal.pool).await.expect("fault");
     assert!(a.run(&start(), "test").await.is_err());
+}
+
+#[tokio::test]
+async fn public_progress_never_exposes_reasoning_and_remains_bounded() {
+    let (f, a) = agent(LocalProvider::Codex).await;
+    for event in [
+        json!({}),
+        json!({"method":"item/completed","params":{"item":{"type":"reasoning","text":"private"}}}),
+        json!({"method":"item/completed","params":{"item":{"type":"agentMessage","phase":"final_answer","text":"final"}}}),
+    ] {
+        assert!(public_progress(LocalProvider::Codex, &event).is_none());
+        a.observe(&start(), LocalProvider::Codex, &event)
+            .await
+            .expect("observation");
+    }
+    let event = json!({"method":"item/completed","params":{"item":{"type":"agentMessage","phase":"commentary","text":"Checking the available Mac and Linux agents."}}});
+    a.observe(&start(), LocalProvider::Codex, &event)
+        .await
+        .expect("public update");
+    let event = json!({"type":"assistant","message":{"content":[{"type":"thinking","thinking":"private"},{"type":"text","text":"界".repeat(800)}]}});
+    a.observe(&start(), LocalProvider::Claude, &event)
+        .await
+        .expect("bounded unicode");
+    let saved = f.journal.pending_activity().await.expect("saved");
+    assert_eq!(
+        saved
+            .last()
+            .expect("last")
+            .summary
+            .as_ref()
+            .expect("summary")
+            .len(),
+        1998
+    );
+    assert!(
+        public_progress(
+            LocalProvider::Claude,
+            &json!({"type":"assistant","message":{"content":[{"type":"text","text":" "}]}})
+        )
+        .is_none()
+    );
+    for text in [" ".to_owned(), "x".repeat(2001)] {
+        assert!(
+            f.journal
+                .record_observation(
+                    id(6),
+                    &instance().to_string(),
+                    LocalProvider::Codex,
+                    ActivityPhase::Commentary,
+                    Some(&text)
+                )
+                .await
+                .is_err()
+        );
+    }
+    f.journal.close().await;
+    assert!(a.observe(&start(),LocalProvider::Codex,&json!({"method":"item/completed","params":{"item":{"type":"agentMessage","phase":"commentary","text":"Testing"}}})).await.is_err());
+}
+
+#[test]
+fn failure_explanations_do_not_expose_raw_errors() {
+    assert_eq!(
+        failure_summary(&NodeError::Rejected("provider session missing")),
+        "provider session missing"
+    );
+    for error in [
+        NodeError::Io(std::io::Error::other("secret-value")),
+        NodeError::Json(serde_json::from_str::<Value>("secret-value").expect_err("invalid")),
+        NodeError::Database(sqlx::Error::Protocol("secret-value".into())),
+    ] {
+        assert!(!failure_summary(&error).contains("secret-value"));
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_provider_turn_can_complete_after_the_previous_ten_minute_cutoff() {
+    let (_f, mut a) = agent(LocalProvider::Claude).await;
+    let terminal = json!({"type":"result","session_id":start().target.session_id,"is_error":false,"subtype":"success","result":"Done after eleven minutes"});
+    script(
+        &mut a,
+        &format!(
+            "cat >/dev/null\ntouch ready\nwhile [ ! -f continue ]; do sleep 0.01; done\nprintf '%s\\n' '{terminal}'"
+        ),
+    );
+    let directory = a.config.directory.clone();
+    let task = tokio::spawn(async move { a.run(&start(), "Long running work").await });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !directory.join("ready").exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("provider started");
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_mins(11)).await;
+    tokio::task::yield_now().await;
+    assert!(
+        !task.is_finished(),
+        "elapsed time must not kill the provider"
+    );
+    tokio::time::resume();
+    std::fs::write(directory.join("continue"), "").expect("finish task");
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .expect("completion")
+            .expect("join")
+            .expect("turn"),
+        "Done after eleven minutes"
+    );
+}
+
+#[test]
+fn malformed_public_updates_never_become_reasoning_or_progress() {
+    for item in [
+        json!({}),
+        json!({"type":1}),
+        json!({"type":"agentMessage"}),
+        json!({"type":"agentMessage","phase":1}),
+        json!({"type":"agentMessage","phase":"commentary"}),
+        json!({"type":"agentMessage","phase":"commentary","text":1}),
+    ] {
+        assert!(
+            public_progress(
+                LocalProvider::Codex,
+                &json!({"method":"item/completed","params":{"item":item}})
+            )
+            .is_none()
+        );
+    }
+    for message in [
+        json!({}),
+        json!({"content":1}),
+        json!({"content":[]}),
+        json!({"content":[{"type":"text"}]}),
+        json!({"content":[{"type":"text","text":1}]}),
+    ] {
+        assert!(
+            public_progress(
+                LocalProvider::Claude,
+                &json!({"type":"assistant","message":message})
+            )
+            .is_none()
+        );
+    }
 }

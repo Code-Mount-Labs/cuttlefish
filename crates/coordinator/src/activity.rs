@@ -23,7 +23,14 @@ impl Store {
         }
         let mut seen = std::collections::BTreeSet::new();
         for event in events {
-            if event.sequence <= 0 || event.at_ms < 0 || !seen.insert(event.sequence) {
+            if event.sequence <= 0
+                || event.at_ms < 0
+                || !seen.insert(event.sequence)
+                || event
+                    .summary
+                    .as_ref()
+                    .is_some_and(|text| text.trim().is_empty() || text.len() > 2000)
+            {
                 return Err(Error::RoutingConflict("invalid activity cursor"));
             }
             let saved: Option<i64> = sqlx::query_scalar("INSERT INTO execution_activity(group_id,node_id,sequence,command_id,payload) SELECT $1,$2,$3,$4,$5 WHERE EXISTS(SELECT 1 FROM dispatches WHERE group_id=$1 AND node_id=$2 AND command_id=$4 AND state<>'queued') ON CONFLICT(group_id,node_id,sequence) DO UPDATE SET payload=execution_activity.payload WHERE execution_activity.payload=excluded.payload RETURNING sequence")

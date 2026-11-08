@@ -59,3 +59,5 @@ pub mod chat;
 pub mod attachments;
 
 pub mod automations;
+
+mod agent_tools;

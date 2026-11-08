@@ -7,11 +7,18 @@ use orchestrator_protocol::{
 };
 use sqlx::types::Json;
 
-type ActivityRow = (i64, String, Json<LocalProvider>, Json<ActivityPhase>, i64);
+type ActivityRow = (
+    i64,
+    String,
+    Json<LocalProvider>,
+    Json<ActivityPhase>,
+    i64,
+    Option<String>,
+);
 
 impl Journal {
     /// Record an observed stage for the worker that currently owns this command.
-    /// Consecutive duplicates are suppressed; a turn retains at most 256 events.
+    /// Consecutive duplicates are suppressed; acknowledged observations are pruned locally.
     ///
     /// # Errors
     /// Rejects stale workers, unclaimed commands and storage failures.
@@ -22,6 +29,24 @@ impl Journal {
         provider: LocalProvider,
         phase: ActivityPhase,
     ) -> Result<(), NodeError> {
+        self.record_observation(command, instance, provider, phase, None)
+            .await
+    }
+    /// Save a factual phase or public provider commentary without exposing reasoning.
+    ///
+    /// # Errors
+    /// Rejects invalid summaries, stale workers and unavailable storage.
+    pub async fn record_observation(
+        &self,
+        command: CommandId,
+        instance: &str,
+        provider: LocalProvider,
+        phase: ActivityPhase,
+        summary: Option<&str>,
+    ) -> Result<(), NodeError> {
+        if summary.is_some_and(|text| text.trim().is_empty() || text.len() > 2000) {
+            return Err(NodeError::Rejected("invalid activity summary"));
+        }
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         let owned: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM command_receipts c JOIN local_sessions s USING(session_id) WHERE c.command_id=? AND c.status='executing' AND s.instance_id=? AND s.state='running')")
             .bind(command.to_string()).bind(instance).fetch_one(&mut *tx).await?;
@@ -30,8 +55,10 @@ impl Journal {
                 "activity requires the current executing worker",
             ));
         }
-        sqlx::query("INSERT INTO execution_activity(command_id,provider,phase,at_ms) SELECT ?,?,?,CAST(unixepoch('subsec')*1000 AS INTEGER) WHERE (SELECT count(*) FROM execution_activity WHERE command_id=?)<256 AND COALESCE((SELECT phase FROM execution_activity WHERE command_id=? ORDER BY sequence DESC LIMIT 1),'')<>?")
-            .bind(command.to_string()).bind(Json(provider)).bind(Json(phase)).bind(command.to_string()).bind(command.to_string()).bind(Json(phase)).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO execution_activity(command_id,provider,phase,at_ms,summary) SELECT ?,?,?,CAST(unixepoch('subsec')*1000 AS INTEGER),? WHERE NOT EXISTS(SELECT 1 FROM execution_activity WHERE sequence=(SELECT max(sequence) FROM execution_activity WHERE command_id=?) AND phase=? AND summary IS ?)")
+            .bind(command.to_string()).bind(Json(provider)).bind(Json(phase)).bind(summary).bind(command.to_string()).bind(Json(phase)).bind(summary).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM execution_activity WHERE command_id=? AND acknowledged=1 AND sequence < COALESCE((SELECT sequence FROM execution_activity WHERE command_id=? ORDER BY sequence DESC LIMIT 1 OFFSET 255),0)")
+            .bind(command.to_string()).bind(command.to_string()).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -40,9 +67,9 @@ impl Journal {
     /// # Errors
     /// Reports storage or decoding failure without dropping observations.
     pub async fn pending_activity(&self) -> Result<Vec<ExecutionActivity>, NodeError> {
-        let rows: Vec<ActivityRow> = sqlx::query_as("SELECT sequence,command_id,provider,phase,at_ms FROM execution_activity WHERE acknowledged=0 ORDER BY sequence LIMIT 64").fetch_all(&self.pool).await?;
+        let rows: Vec<ActivityRow> = sqlx::query_as("SELECT sequence,command_id,provider,phase,at_ms,summary FROM execution_activity WHERE acknowledged=0 ORDER BY sequence LIMIT 64").fetch_all(&self.pool).await?;
         rows.into_iter()
-            .map(|(sequence, command, provider, phase, at_ms)| {
+            .map(|(sequence, command, provider, phase, at_ms, summary)| {
                 Ok(ExecutionActivity {
                     sequence,
                     command_id: command
@@ -51,6 +78,7 @@ impl Journal {
                     provider: provider.0,
                     phase: phase.0,
                     at_ms,
+                    summary,
                 })
             })
             .collect()

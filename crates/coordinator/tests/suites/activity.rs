@@ -11,6 +11,7 @@ use orchestrator_protocol::{
 use std::sync::Arc;
 fn event() -> ExecutionActivity {
     ExecutionActivity {
+        summary: None,
         sequence: 1,
         command_id: id(200),
         provider: LocalProvider::Claude,

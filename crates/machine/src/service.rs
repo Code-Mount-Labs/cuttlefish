@@ -1,15 +1,15 @@
-//! Per-user background service integration. launchd owns the process, while the
+//! Background service integration. The OS owns the supervisor process, while the
 //! existing state directory remains the sole owner of identity and credentials.
 use crate::Error;
 use clap::Subcommand;
 use std::{path::Path, time::Duration};
 
-/// Explicit lifecycle operations for the local macOS login service.
+/// Explicit lifecycle operations for the local background service.
 #[derive(Debug, Clone, Copy, Subcommand)]
 pub enum ServiceAction {
-    /// Install and start a login service for this existing installation.
+    /// Install and start a background service for this existing installation.
     Install,
-    /// Start an installed service and enable automatic login startup.
+    /// Start an installed service and enable automatic startup.
     Start,
     /// Stop the service and disable automatic startup until started again.
     Stop,
@@ -33,7 +33,7 @@ impl ServiceAction {
     }
 }
 
-/// Manage one installation's macOS `LaunchAgent`. No elevated account is used.
+/// Manage one installation's launchd or systemd service as its installation owner.
 ///
 /// # Errors
 /// Reports unsupported platforms, invalid paths, or failed service operations.
@@ -51,7 +51,7 @@ pub async fn manage(
         listen,
         home,
         std::env::consts::OS,
-        include_str!("../../../install/service-macos.sh"),
+        script(std::env::consts::OS),
     )
     .await
 }
@@ -65,8 +65,10 @@ pub(crate) async fn apply(
     os: &str,
     script: &str,
 ) -> Result<(), Error> {
-    if os != "macos" {
-        return Err(Error::Invalid("background_service_requires_macos"));
+    if !matches!(os, "macos" | "linux") {
+        return Err(Error::Invalid(
+            "background_service_requires_macos_or_linux_systemd",
+        ));
     }
     if listen.port() == 0 {
         return Err(Error::Invalid("background_service_requires_fixed_port"));
@@ -93,7 +95,7 @@ pub(crate) async fn apply(
 #[path = "../tests/internal/service.rs"]
 mod tests;
 
-/// Read the saved listener for this installation's macOS login service.
+/// Read the saved listener for this installation's background service.
 ///
 /// # Errors
 /// Reports unreadable or malformed service definitions.
@@ -103,7 +105,7 @@ pub fn address(
     os: &str,
 ) -> Result<Option<std::net::SocketAddr>, Error> {
     use sha2::{Digest, Sha256};
-    if os != "macos" {
+    if !matches!(os, "macos" | "linux") {
         return Ok(None);
     }
     let Some(home) = home else {
@@ -114,9 +116,14 @@ pub fn address(
         "{:x}",
         Sha256::digest(directory.as_os_str().as_encoded_bytes())
     );
-    let path = home
-        .join("Library/LaunchAgents")
-        .join(format!("com.cuttlefish.app.{}.plist", &digest[..32]));
+    let path = if os == "linux" {
+        directory
+            .join("service")
+            .join(format!("cuttlefish-{}.service", &digest[..32]))
+    } else {
+        home.join("Library/LaunchAgents")
+            .join(format!("com.cuttlefish.app.{}.plist", &digest[..32]))
+    };
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -124,11 +131,22 @@ pub fn address(
     };
     text.lines()
         .find_map(|line| {
-            line.strip_prefix("<!-- Cuttlefish listener: ")
-                .and_then(|value| value.strip_suffix(" -->"))
+            line.strip_prefix("# Cuttlefish listener: ").or_else(|| {
+                line.strip_prefix("<!-- Cuttlefish listener: ")
+                    .and_then(|value| value.strip_suffix(" -->"))
+            })
         })
         .ok_or(Error::Invalid("invalid_service_listener"))?
         .parse()
         .map(Some)
         .map_err(|_| Error::Invalid("invalid_service_listener"))
+}
+
+/// Choose the native service adapter; unsupported platforms are rejected before invocation.
+pub(crate) fn script(os: &str) -> &'static str {
+    if os == "linux" {
+        include_str!("../../../install/service-linux.sh")
+    } else {
+        include_str!("../../../install/service-macos.sh")
+    }
 }

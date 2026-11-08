@@ -31,7 +31,7 @@ pub struct Cli {
 enum Mode {
     /// Join a group, select a role, and open the local setup dashboard.
     Setup {
-        /// Keep running in this terminal instead of installing a macOS login service.
+        /// Keep running in this terminal instead of installing a background service.
         #[arg(long)]
         foreground: bool,
         #[arg(
@@ -58,7 +58,7 @@ enum Mode {
     /// Resume a durable update independently of the server.
     #[command(hide = true)]
     UpdateWorker,
-    /// Manage background startup for this installation (macOS).
+    /// Manage background startup for this installation (macOS or Linux systemd).
     Service {
         #[command(subcommand)]
         action: crate::service::ServiceAction,
@@ -95,12 +95,16 @@ async fn run_with(
         output,
         SetupEnvironment {
             os: std::env::consts::OS,
-            script: include_str!("../../../install/service-macos.sh"),
-            browser: "open",
+            script: crate::service::script(std::env::consts::OS),
+            browser: browser_command(std::env::consts::OS),
         },
     )
     .await
 }
+fn browser_command(os: &str) -> &'static str {
+    if os == "macos" { "open" } else { "xdg-open" }
+}
+
 struct SetupEnvironment<'a> {
     os: &'a str,
     script: &'a str,
@@ -171,7 +175,7 @@ async fn run_with_environment(
         setup(&machine, &platform, listen, input, output).await?;
     }
     print_dashboard(&machine, output).await?;
-    if setup_mode && !foreground && environment.os == "macos" {
+    if setup_mode && !foreground && matches!(environment.os, "macos" | "linux") {
         machine.close().await;
         drop(machine);
         crate::service::apply(
@@ -191,7 +195,7 @@ async fn run_with_environment(
             .await;
         writeln!(
             output,
-            "Setup is running in your browser. You can close this terminal."
+            "Setup is running at the dashboard address above. You can close this terminal."
         )?;
         return Ok(());
     }

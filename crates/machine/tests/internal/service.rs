@@ -22,7 +22,7 @@ async fn platform_and_input_errors_do_not_install_services() {
     let address = "127.0.0.1:8080".parse().expect("address");
     let home = Some(root.path().as_os_str());
     for (os, listen, home) in [
-        ("linux", address, home),
+        ("windows", address, home),
         ("macos", "127.0.0.1:0".parse().expect("zero port"), home),
         ("macos", address, None),
     ] {
@@ -114,7 +114,7 @@ fn saved_service_listener_is_specific_to_state_and_validated() {
     let state = temp.path().join("state");
     std::fs::create_dir(&state).expect("state");
     assert!(
-        address(&state, Some(temp.path()), "linux")
+        address(&state, Some(temp.path()), "windows")
             .expect("linux")
             .is_none()
     );
@@ -164,5 +164,28 @@ async fn empty_executable_is_rejected_before_service_invocation() {
         )
         .await
         .is_err()
+    );
+}
+
+#[test]
+fn linux_manifest_is_state_scoped_and_native_adapters_are_selected() {
+    use sha2::{Digest, Sha256};
+    assert!(script("linux").contains("systemctl"));
+    assert!(script("macos").contains("launchctl"));
+    let temp = tempfile::tempdir().expect("temp");
+    let state = temp.path().canonicalize().expect("canonical");
+    let digest = format!("{:x}", Sha256::digest(state.as_os_str().as_encoded_bytes()));
+    let folder = state.join("service");
+    std::fs::create_dir(&folder).expect("service");
+    let path = folder.join(format!("cuttlefish-{}.service", &digest[..32]));
+    assert!(
+        address(&state, Some(&state), "linux")
+            .expect("absent")
+            .is_none()
+    );
+    std::fs::write(path, "# Cuttlefish listener: [::1]:8123\n").expect("manifest");
+    assert_eq!(
+        address(&state, Some(&state), "linux").expect("saved"),
+        Some("[::1]:8123".parse().expect("address"))
     );
 }

@@ -80,7 +80,7 @@ pub struct Status {
     pub check_error: Option<String>,
     /// Whether the installation uses the managed release layout.
     pub supported: bool,
-    /// Whether a macOS background service exists for this installation.
+    /// Whether a native background service exists for this installation.
     pub automatic_restart: bool,
     /// Last durable operation.
     pub job: Option<Job>,

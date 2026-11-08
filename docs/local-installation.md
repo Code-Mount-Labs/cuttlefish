@@ -38,8 +38,9 @@ state directory and listener settings.
 The shell bootstrap downloads versioned, checksum-verified release archives.
 Windows scripts remain experimental and are not a supported installation path.
 On macOS, setup installs the login service and opens the dashboard by default.
-Use `setup --foreground` to keep it in the terminal. On Linux, it runs in the
-foreground. The managed relay connector has its
+Use `setup --foreground` to keep it in the terminal. Linux systemd support,
+implemented for the next release, also starts in the background by default.
+The managed relay connector has its
 own native OS service and survives supervisor restart.
 
 ## macOS background startup
@@ -94,6 +95,58 @@ The service retries crash recovery through launchd. Removing it does not remove
 PostgreSQL, the relay connector, provider installations, journals, or workspaces.
 Existing specialist processes retain their independent lifetime across a
 supervisor restart.
+
+## Linux background startup (next release)
+
+Linux installations with systemd and GNU coreutils use the same `service install`, `status`,
+`restart`, `stop`, `start`, and `uninstall` commands shown above. Alpha.9 does
+not include this support; build the current source or wait for the next release.
+For an existing installation, stop the foreground process with Ctrl+C, then run
+as the account that owns the installation:
+
+```sh
+cuttlefish service install --listen 127.0.0.1:8080
+cuttlefish service status
+cuttlefish update
+```
+
+Use `--state-dir <directory>` for a nondefault installation. Do not change users
+or add `sudo` when updating a user-owned installation: the same account, home,
+state, and provider sign-ins must be retained.
+
+A regular account gets a `systemctl --user` service. Installation enables user
+lingering so the service starts on boot and remains running after logout. If
+system policy requires administrator authorization, installation prints the
+exact `sudo loginctl enable-linger <uid>` command; run it and retry. The user
+systemd manager must be available in the login session. Containers and Linux
+systems without systemd can use `setup --foreground` and their own supervisor.
+A root-owned installation instead gets a system service. Cuttlefish never
+silently changes the installation owner or enables a root service for a regular
+account.
+
+Each canonical state directory has its own unit:
+`<state-dir>/service/cuttlefish-<state-hash>.service`. It is linked into the
+appropriate systemd manager. It preserves the saved listener, account home,
+provider paths, and Docker connection environment. Environment values are
+escaped; model keys belong in the local dashboard. The unit and state directory
+are private to the installation owner. Stop disables automatic startup; start
+reenables it. Uninstall removes only that unit, and deliberately leaves the
+account-wide lingering setting unchanged because other applications may use it.
+
+For logs, use the exact unit name in that directory:
+
+```sh
+journalctl --user -u cuttlefish-<state-hash>.service -f
+```
+
+For root-owned installations omit `--user`. Service status checks both the
+process and the local dashboard; startup refuses an already occupied port.
+Crash recovery restarts the supervisor. As on macOS, independently journaled
+specialists and the detached updater survive supervisor restarts. The unit
+therefore uses `KillMode=process` and `KillSignal=SIGINT`; stopping or uninstalling
+the supervisor is **not** a command to cancel running specialist tasks. A full
+OS reboot stops processes; task recovery then inspects their durable journals.
+The home and installation disks must be available at boot.
 
 ## Passwords
 
@@ -210,7 +263,8 @@ interrupted operation. An already installed release is not downloaded again
 when only the service restart needs retrying. Failed operations remain visible
 and can be retried explicitly. The helper checks the restarted service's version
 before reporting completion. Foreground installations report that a manual
-restart is required; automatic service restart currently supports macOS.
+restart is required. Automatic service restart supports macOS and, starting
+with the next release, Linux with systemd.
 
 Updates do not replace the SQLite journals, PostgreSQL data or volume, workspace
 files, edited prompts, account settings, or provider credentials. Existing schema
@@ -279,3 +333,16 @@ are exercised in both root and rootless modes. An optional third argument accept
 a release archive and also exercises the bootstrap and complete local setup flow.
 `tests/install/release-smoke.py` uses a local directory fixture while exercising
 real authentication, provisioning, agent enrollment, and supervisor restarts.
+
+Linux service contracts run with isolated command doubles. The real-systemd
+test `tests/install/service-linux-live.py` exercises a uniquely named service,
+crash recovery, specialist survival, saved data, port conflicts, and uninstallation.
+Use its `--leave-for-reboot` option only in a disposable VM, then run it with
+`--after-reboot` after rebooting that VM. Both user and root scopes are tested.
+
+`tests/install/service-linux-update.py <binary-directory> <empty-test-directory>`
+checks background setup and authenticated dashboard/CLI updates under actual
+systemd, including abrupt supervisor recovery with the same durable update ID.
+It uses local release-download and group-directory fixtures, and verifies real
+archive validation, activation, saved login, identity, work and provider markers.
+The Linux CI job runs both systemd tests in its disposable runner.

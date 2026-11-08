@@ -56,7 +56,8 @@ The installer verifies release checksums and asks for your group ID and one-use
 enrollment code. Linux and macOS binaries support ARM64 and x86-64. Windows
 installation is deferred. On macOS, setup starts a background login service and
 opens the dashboard; the terminal can be closed. Use `setup --foreground` to opt out.
-Linux currently runs in the foreground. Managed remote access installs its own
+Linux systemd support is implemented for the next release: setup starts a
+background service, and updates restart it automatically. Managed remote access installs its own
 recoverable connector service. Choose local-only, Cuttlefish-managed HTTPS,
 or an existing HTTPS address during setup; see [remote access](docs/remote-access.md).
 The documentation describes the current source; check the release notes for the

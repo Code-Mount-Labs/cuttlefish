@@ -65,6 +65,8 @@ jobs:
           sh -n install/docker.sh
           sh -n install/relay.sh
           sh -n install/service-macos.sh
+          sh -n install/service-linux.sh
+          python3 tests/install/service-linux.py
           python3 tests/install/service.py
           python3 tests/install/update.py
           bash -n deploy/relay/entrypoint.sh
@@ -72,6 +74,9 @@ jobs:
       - name: Verify real macOS login service lifecycle
         if: runner.os == 'macOS'
         run: python3 tests/install/service-macos-live.py
+      - name: Verify real Linux systemd lifecycle
+        if: runner.os == 'Linux'
+        run: sudo python3 tests/install/service-linux-live.py install/service-linux.sh "$RUNNER_TEMP/cuttlefish-systemd"
       - name: Validate PowerShell installers
         if: runner.os == 'Windows'
         shell: pwsh
@@ -84,6 +89,11 @@ jobs:
           }
       - name: Unit and integration tests
         run: cargo test --workspace --all-targets --locked
+      - name: Verify Linux dashboard and CLI updates under systemd
+        if: runner.os == 'Linux'
+        run: |
+          cargo build --locked -p cuttlefish-machine -p orchestrator-node -p orchestrator-coordinator --bins
+          sudo python3 tests/install/service-linux-update.py target/debug "$RUNNER_TEMP/cuttlefish-systemd-update"
       - name: Browser chat contracts
         if: runner.os == 'Linux'
         run: |

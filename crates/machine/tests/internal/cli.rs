@@ -641,7 +641,11 @@ async fn service_cli_does_not_create_or_replace_a_missing_installation() {
 #[tokio::test]
 async fn setup_starts_background_service_and_opens_browser_without_holding_terminal() {
     let (origin, server) = registry(vec![InstallationRole::Router], false).await;
-    for script in ["exit 0", "exit 1"] {
+    for (os, script) in [
+        ("macos", "exit 0"),
+        ("macos", "exit 1"),
+        ("linux", "exit 0"),
+    ] {
         let temp = tempfile::tempdir().expect("temp");
         let mut output = Vec::new();
         let result = run_with_environment(
@@ -658,7 +662,7 @@ async fn setup_starts_background_service_and_opens_browser_without_holding_termi
             &mut answers("1\nTest\nlocal\n").as_bytes(),
             &mut output,
             SetupEnvironment {
-                os: "macos",
+                os,
                 script,
                 browser: "true",
             },
@@ -798,4 +802,10 @@ async fn background_setup_reports_missing_binary_and_closed_terminal() {
         .await
         .is_err()
     );
+}
+
+#[test]
+fn browser_commands_follow_the_host_desktop() {
+    assert_eq!(browser_command("macos"), "open");
+    assert_eq!(browser_command("linux"), "xdg-open");
 }

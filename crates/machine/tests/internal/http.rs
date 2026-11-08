@@ -69,7 +69,7 @@ async fn dashboard_supports_deferred_setup_authenticated_configuration_and_logou
     public_assets(&app).await;
     assert_eq!(
         request(&app, "/api/local/status", None, None, None).await.1,
-        json!({"initialized":false})
+        json!({"initialized":false,"version":env!("CARGO_PKG_VERSION")})
     );
     assert_eq!(
         request(&app, "/api/local/config", None, None, None).await.0,
@@ -281,4 +281,48 @@ async fn public_assets(app: &Router) {
         request(app, "/missing", None, None, None).await.0,
         StatusCode::NOT_FOUND
     );
+}
+
+#[tokio::test]
+async fn updates_require_admin_and_same_origin_and_report_unmanaged_layout() {
+    let dir = tempfile::tempdir().expect("temp");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    initialize(&machine).await;
+    let app = crate::web::router(machine.clone());
+    assert_eq!(
+        request(&app, "/api/local/updates", None, None, None)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let cookie = sign_in(&app, &machine).await;
+    let (status, value, _) = request(&app, "/api/local/updates", None, Some(&cookie), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(value["supported"], false);
+    for origin in [None, Some("https://evil.example")] {
+        assert_eq!(
+            request(
+                &app,
+                "/api/local/updates",
+                Some(json!({"action":"restart"})),
+                Some(&cookie),
+                origin
+            )
+            .await
+            .0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    let (status, _, _) = request(
+        &app,
+        "/api/local/updates",
+        Some(json!({"action":"check"})),
+        Some(&cookie),
+        Some("http://127.0.0.1:8080"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    machine.close().await;
 }

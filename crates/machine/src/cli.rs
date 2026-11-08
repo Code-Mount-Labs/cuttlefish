@@ -31,6 +31,9 @@ pub struct Cli {
 enum Mode {
     /// Join a group, select a role, and open the local setup dashboard.
     Setup {
+        /// Keep running in this terminal instead of installing a macOS login service.
+        #[arg(long)]
+        foreground: bool,
         #[arg(
             long,
             default_value = "https://platform-production-105c.up.railway.app"
@@ -46,6 +49,15 @@ enum Mode {
     },
     /// Install/start Docker with interactive OS authorization if needed.
     InstallDocker,
+    /// Check for updates, install a verified release, and restart the background service.
+    Update {
+        /// Check availability without installing.
+        #[arg(long)]
+        check: bool,
+    },
+    /// Resume a durable update independently of the server.
+    #[command(hide = true)]
+    UpdateWorker,
     /// Manage background startup for this installation (macOS).
     Service {
         #[command(subcommand)]
@@ -75,8 +87,50 @@ async fn run_with(
     input: &mut dyn BufRead,
     output: &mut dyn Write,
 ) -> Result<(), Error> {
-    let (platform, listen) = match cli.command {
+    run_with_environment(
+        cli,
+        home,
+        executable,
+        input,
+        output,
+        SetupEnvironment {
+            os: std::env::consts::OS,
+            script: include_str!("../../../install/service-macos.sh"),
+            browser: "open",
+        },
+    )
+    .await
+}
+struct SetupEnvironment<'a> {
+    os: &'a str,
+    script: &'a str,
+    browser: &'a str,
+}
+async fn run_with_environment(
+    cli: Cli,
+    home: Option<std::ffi::OsString>,
+    executable: fn() -> io::Result<PathBuf>,
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+    environment: SetupEnvironment<'_>,
+) -> Result<(), Error> {
+    let (platform, listen, foreground) = match cli.command {
         Mode::InstallDocker => return crate::dependencies::install_docker(true).await,
+        Mode::Update { .. } | Mode::UpdateWorker => {
+            let directory = cli
+                .state_dir
+                .or_else(|| {
+                    home.as_ref()
+                        .map(|home| PathBuf::from(home).join(".cuttlefish"))
+                })
+                .ok_or(Error::Invalid("provide --state-dir"))?;
+            let manager =
+                crate::updates::Manager::new(&directory, executable()?, home.map(PathBuf::from));
+            return match cli.command {
+                Mode::Update { check } => crate::updates::run_cli(manager, check).await,
+                _ => crate::updates::run_worker(manager).await,
+            };
+        }
         Mode::Service { action, listen } => {
             let directory = cli
                 .state_dir
@@ -94,16 +148,20 @@ async fn run_with(
             )
             .await;
         }
-        Mode::Setup { platform, listen } => (Some(platform), listen),
-        Mode::Serve { listen } => (None, listen),
+        Mode::Setup {
+            platform,
+            listen,
+            foreground,
+        } => (Some(platform), listen, foreground),
+        Mode::Serve { listen } => (None, listen, true),
     };
     let directory = match cli.state_dir {
         Some(path) => path,
-        None => {
-            PathBuf::from(home.ok_or(Error::Invalid("provide --state-dir"))?).join(".cuttlefish")
-        }
+        None => PathBuf::from(home.as_ref().ok_or(Error::Invalid("provide --state-dir"))?)
+            .join(".cuttlefish"),
     };
     let machine = Machine::open(&directory, Arc::new(DockerBackend::new(&directory))).await?;
+    let setup_mode = platform.is_some();
     if let Some(platform) = platform
         && matches!(
             machine.identity().await,
@@ -113,6 +171,30 @@ async fn run_with(
         setup(&machine, &platform, listen, input, output).await?;
     }
     print_dashboard(&machine, output).await?;
+    if setup_mode && !foreground && environment.os == "macos" {
+        machine.close().await;
+        drop(machine);
+        crate::service::apply(
+            crate::service::ServiceAction::Install,
+            &directory,
+            &crate::installation::stable(&executable()?),
+            listen,
+            home.as_deref(),
+            environment.os,
+            environment.script,
+        )
+        .await?;
+        // Opening a browser is optional; the printed address always remains usable.
+        let _ = tokio::process::Command::new(environment.browser)
+            .arg(format!("http://{listen}"))
+            .status()
+            .await;
+        writeln!(
+            output,
+            "Setup is running in your browser. You can close this terminal."
+        )?;
+        return Ok(());
+    }
     let worker =
         executable()?.with_file_name(format!("orchestrator-node{}", std::env::consts::EXE_SUFFIX));
     crate::runtime::serve(machine, listen, worker).await

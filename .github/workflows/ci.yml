@@ -66,6 +66,7 @@ jobs:
           sh -n install/relay.sh
           sh -n install/service-macos.sh
           python3 tests/install/service.py
+          python3 tests/install/update.py
           bash -n deploy/relay/entrypoint.sh
           python3 experiments/relay/service_smoke.py
       - name: Verify real macOS login service lifecycle

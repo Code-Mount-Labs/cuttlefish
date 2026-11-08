@@ -47,7 +47,7 @@ pub async fn manage(
     apply(
         action,
         directory,
-        executable,
+        &crate::installation::stable(executable),
         listen,
         home,
         std::env::consts::OS,
@@ -56,7 +56,7 @@ pub async fn manage(
     .await
 }
 
-async fn apply(
+pub(crate) async fn apply(
     action: ServiceAction,
     directory: &Path,
     executable: &Path,
@@ -73,7 +73,8 @@ async fn apply(
     }
     let home = home.ok_or(Error::Invalid("background_service_requires_home"))?;
     let directory = std::fs::canonicalize(directory)?;
-    let executable = std::fs::canonicalize(executable)?;
+    let executable = std::path::absolute(executable)?;
+    std::fs::metadata(&executable)?;
     let mut command = tokio::process::Command::new("/bin/sh");
     command
         .args(["-s", "--", action.name()])
@@ -91,3 +92,43 @@ async fn apply(
 #[cfg(test)]
 #[path = "../tests/internal/service.rs"]
 mod tests;
+
+/// Read the saved listener for this installation's macOS login service.
+///
+/// # Errors
+/// Reports unreadable or malformed service definitions.
+pub fn address(
+    directory: &Path,
+    home: Option<&Path>,
+    os: &str,
+) -> Result<Option<std::net::SocketAddr>, Error> {
+    use sha2::{Digest, Sha256};
+    if os != "macos" {
+        return Ok(None);
+    }
+    let Some(home) = home else {
+        return Ok(None);
+    };
+    let directory = std::fs::canonicalize(directory)?;
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(directory.as_os_str().as_encoded_bytes())
+    );
+    let path = home
+        .join("Library/LaunchAgents")
+        .join(format!("com.cuttlefish.app.{}.plist", &digest[..32]));
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    text.lines()
+        .find_map(|line| {
+            line.strip_prefix("<!-- Cuttlefish listener: ")
+                .and_then(|value| value.strip_suffix(" -->"))
+        })
+        .ok_or(Error::Invalid("invalid_service_listener"))?
+        .parse()
+        .map(Some)
+        .map_err(|_| Error::Invalid("invalid_service_listener"))
+}

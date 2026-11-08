@@ -49,18 +49,24 @@ PostgreSQL on the machine. Setup can be deferred and completed later.
 Create a group on the staging website, choose **Connect a machine**, then run:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.6/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.7/install.sh | sh
 ```
 
 The installer verifies release checksums and asks for your group ID and one-use
 enrollment code. Linux and macOS binaries support ARM64 and x86-64. Windows
-installation is deferred. This alpha runs in the foreground; automatic OS service
-registration for the main process is not yet included. Managed remote access installs
-its own recoverable connector service. Choose local-only, Cuttlefish-managed HTTPS,
+installation is deferred. On macOS, setup starts a background login service and
+opens the dashboard; the terminal can be closed. Use `setup --foreground` to opt out.
+Linux currently runs in the foreground. Managed remote access installs its own
+recoverable connector service. Choose local-only, Cuttlefish-managed HTTPS,
 or an existing HTTPS address during setup; see [remote access](docs/remote-access.md).
 The documentation describes the current source; check the release notes for the
 features included in an installed version.
 See [local setup and database choices](docs/local-installation.md).
+
+After this release is installed, update from **Settings → Updates → Check for
+updates → Update and restart**, or run `cuttlefish update`. The updater preserves
+chats, settings, workspaces, edited prompts, databases, and provider sign-ins.
+Existing installations need the new bootstrap once to enable this command.
 
 ## Using the dashboard
 

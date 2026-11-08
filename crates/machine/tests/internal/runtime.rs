@@ -383,3 +383,20 @@ async fn agent_only_installation_does_not_run_group_schedules() {
     }
     machine.close().await;
 }
+
+#[tokio::test]
+async fn missing_updater_does_not_stop_runtime_recovery() {
+    let dir = tempfile::tempdir().expect("directory");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(20),
+            recover_updates_with(machine.clone(), |_| Err(Error::Invalid("unavailable")))
+        )
+        .await
+        .is_err()
+    );
+    machine.close().await;
+}

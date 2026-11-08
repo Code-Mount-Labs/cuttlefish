@@ -50,6 +50,7 @@ pub fn router(machine: Machine) -> Router {
         .route("/api/local/logout", post(logout))
         .route("/api/local/password", post(change_password))
         .route("/api/local/config", get(configuration))
+        .route("/api/local/updates", get(update_status).post(update_action))
         .route("/api/local/database", post(database))
         .route("/api/local/database/retry", post(retry_database))
         .route("/api/local/model", post(model))
@@ -145,7 +146,9 @@ async fn cookie(machine: &Machine, value: &str, age: u32) -> Result<Response, Er
     Ok(([(header::SET_COOKIE,format!("cuttlefish_local_session={value}; HttpOnly; SameSite=Strict; Path=/; Max-Age={age}{secure}"))],Json(json!({"ok":true}))).into_response())
 }
 async fn status(State(machine): State<Machine>) -> Result<Json<serde_json::Value>, Error> {
-    Ok(Json(json!({"initialized":machine.initialized().await?})))
+    Ok(Json(
+        json!({"initialized":machine.initialized().await?,"version":env!("CARGO_PKG_VERSION")}),
+    ))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -202,7 +205,7 @@ async fn configuration(
     authorize(&machine, &headers, false).await?;
     let identity = machine.identity().await?;
     Ok(Json(
-        json!({"features":{"chat":true,"attachments":true,"activity":true,"automations":true},"group_id":identity.registration.group_id,"installation_id":identity.registration.installation_id,"name":identity.registration.name,"role":identity.registration.role,"database":machine.status().await?,"model":machine.model_status().await?,"remote":machine.remote_status().await?}),
+        json!({"features":{"chat":true,"attachments":true,"activity":true,"automations":true,"updates":true},"group_id":identity.registration.group_id,"installation_id":identity.registration.installation_id,"name":identity.registration.name,"role":identity.registration.role,"database":machine.status().await?,"model":machine.model_status().await?,"remote":machine.remote_status().await?}),
     ))
 }
 async fn database(
@@ -422,4 +425,38 @@ async fn change_automation(
     require_router(&machine).await?;
     machine.change_automation(change).await?;
     Ok(Json(json!({"ok":true})))
+}
+
+async fn update_status(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+) -> Result<Json<crate::updates::Status>, Error> {
+    update_status_with(machine, headers, crate::updates::manager).await
+}
+async fn update_status_with(
+    machine: Machine,
+    headers: HeaderMap,
+    resolve: fn(&std::path::Path) -> Result<crate::updates::Manager, Error>,
+) -> Result<Json<crate::updates::Status>, Error> {
+    authorize(&machine, &headers, false).await?;
+    Ok(Json(resolve(machine.directory())?.status()?))
+}
+async fn update_action(
+    State(machine): State<Machine>,
+    headers: HeaderMap,
+    Json(action): Json<crate::updates::Action>,
+) -> Result<(StatusCode, Json<crate::updates::Status>), Error> {
+    update_action_with(machine, headers, action, crate::updates::manager).await
+}
+async fn update_action_with(
+    machine: Machine,
+    headers: HeaderMap,
+    action: crate::updates::Action,
+    resolve: fn(&std::path::Path) -> Result<crate::updates::Manager, Error>,
+) -> Result<(StatusCode, Json<crate::updates::Status>), Error> {
+    authorize(&machine, &headers, true).await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(resolve(machine.directory())?.act(action).await?),
+    ))
 }

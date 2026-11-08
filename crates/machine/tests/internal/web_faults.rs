@@ -383,3 +383,33 @@ async fn remote_controls_require_local_admin_and_accept_only_selected_browser_or
     assert!(remote_proof(State(machine.clone())).await.is_err());
     machine.close().await;
 }
+
+#[tokio::test]
+async fn update_handlers_report_discovery_and_journal_failure_after_authorization() {
+    let (_dir, machine) = machine().await;
+    let headers = admin(&machine).await;
+    let missing: fn(&std::path::Path) -> Result<crate::updates::Manager, Error> =
+        |_| Err(Error::Invalid("executable_unavailable"));
+    assert!(
+        update_status_with(machine.clone(), headers.clone(), missing)
+            .await
+            .is_err()
+    );
+    assert!(
+        update_action_with(
+            machine.clone(),
+            headers.clone(),
+            crate::updates::Action::Check,
+            missing
+        )
+        .await
+        .is_err()
+    );
+    std::fs::write(machine.directory().join("updates"), b"unavailable").expect("block journal");
+    assert!(
+        update_status_with(machine.clone(), headers, crate::updates::manager)
+            .await
+            .is_err()
+    );
+    machine.close().await;
+}

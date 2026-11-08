@@ -288,6 +288,7 @@ async fn run_requires_a_home_and_reports_storage_and_setup_errors() {
     let mut args = cli();
     args.state_dir = Some(dir.path().join("new"));
     args.command = Mode::Setup {
+        foreground: true,
         platform: "invalid".into(),
         listen: "127.0.0.1:0".parse().expect("listen"),
     };
@@ -490,6 +491,7 @@ async fn configured_startup_and_successful_registration_preserve_identity() {
     let cli = Cli {
         state_dir: Some(dir.path().into()),
         command: Mode::Setup {
+            foreground: true,
             platform: origin,
             listen,
         },
@@ -627,6 +629,169 @@ async fn service_cli_does_not_create_or_replace_a_missing_installation() {
             },
             None,
             || Err(io::Error::other("executable unavailable")),
+            &mut &b""[..],
+            &mut Vec::new()
+        )
+        .await
+        .is_err()
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn setup_starts_background_service_and_opens_browser_without_holding_terminal() {
+    let (origin, server) = registry(vec![InstallationRole::Router], false).await;
+    for script in ["exit 0", "exit 1"] {
+        let temp = tempfile::tempdir().expect("temp");
+        let mut output = Vec::new();
+        let result = run_with_environment(
+            Cli {
+                state_dir: Some(temp.path().into()),
+                command: Mode::Setup {
+                    foreground: false,
+                    platform: origin.clone(),
+                    listen: "127.0.0.1:8123".parse().expect("listen"),
+                },
+            },
+            Some(temp.path().as_os_str().into()),
+            std::env::current_exe,
+            &mut answers("1\nTest\nlocal\n").as_bytes(),
+            &mut output,
+            SetupEnvironment {
+                os: "macos",
+                script,
+                browser: "true",
+            },
+        )
+        .await;
+        assert_eq!(result.is_ok(), script == "exit 0");
+        if result.is_ok() {
+            assert!(
+                String::from_utf8(output)
+                    .expect("output")
+                    .contains("You can close this terminal")
+            );
+        }
+    }
+    server.abort();
+}
+#[tokio::test]
+async fn update_commands_validate_state_before_any_download() {
+    for args in [["cuttlefish", "update"], ["cuttlefish", "update-worker"]] {
+        let cli = Cli::try_parse_from(args).expect("CLI");
+        assert!(
+            run_with(
+                cli,
+                None,
+                std::env::current_exe,
+                &mut &b""[..],
+                &mut Vec::new()
+            )
+            .await
+            .is_err()
+        );
+        let temp = tempfile::tempdir().expect("temp");
+        let mut cli = Cli::try_parse_from(args).expect("CLI");
+        cli.state_dir = Some(temp.path().into());
+        assert!(
+            run_with(
+                cli,
+                None,
+                std::env::current_exe,
+                &mut &b""[..],
+                &mut Vec::new()
+            )
+            .await
+            .is_err()
+        );
+        let cli = Cli::try_parse_from(args).expect("CLI");
+        assert!(
+            run_with(
+                cli,
+                Some(temp.path().as_os_str().into()),
+                std::env::current_exe,
+                &mut &b""[..],
+                &mut Vec::new()
+            )
+            .await
+            .is_err()
+        );
+    }
+    assert!(Cli::try_parse_from(["cuttlefish", "update", "--check"]).is_ok());
+}
+
+#[cfg(unix)]
+struct FinishFails;
+#[cfg(unix)]
+impl Write for FinishFails {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if String::from_utf8_lossy(bytes).contains("Setup is running") {
+            Err(io::Error::other("terminal closed"))
+        } else {
+            Ok(bytes.len())
+        }
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+#[cfg(unix)]
+#[tokio::test]
+async fn background_setup_reports_missing_binary_and_closed_terminal() {
+    let dir = tempfile::tempdir().expect("dir");
+    let machine = Machine::open(dir.path(), Arc::new(DockerBackend::new(dir.path())))
+        .await
+        .expect("machine");
+    crate::tests::initialize(&machine).await;
+    machine.close().await;
+    drop(machine);
+    let cli = || Cli {
+        state_dir: Some(dir.path().into()),
+        command: Mode::Setup {
+            foreground: false,
+            platform: "https://example.com".into(),
+            listen: "127.0.0.1:8123".parse().expect("listen"),
+        },
+    };
+    assert!(
+        run_with_environment(
+            cli(),
+            Some(dir.path().into()),
+            || Err(io::Error::other("executable missing")),
+            &mut &b""[..],
+            &mut Vec::new(),
+            SetupEnvironment {
+                os: "macos",
+                script: "exit 0",
+                browser: "true"
+            }
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        run_with_environment(
+            cli(),
+            Some(dir.path().into()),
+            std::env::current_exe,
+            &mut &b""[..],
+            &mut FinishFails,
+            SetupEnvironment {
+                os: "macos",
+                script: "exit 0",
+                browser: "true"
+            }
+        )
+        .await
+        .is_err()
+    );
+    let mut update = cli();
+    update.command = Mode::Update { check: true };
+    assert!(
+        run_with(
+            update,
+            Some(dir.path().into()),
+            || Err(io::Error::other("executable missing")),
             &mut &b""[..],
             &mut Vec::new()
         )

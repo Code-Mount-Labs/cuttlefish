@@ -63,7 +63,11 @@ with tempfile.TemporaryDirectory(prefix='cuttlefish-release-') as folder:
     assets.append(str(sums))
     hashes[sums.name] = hashlib.sha256(sums.read_bytes()).hexdigest()
     notes = root / 'notes.md'
-    notes.write_text(f'''Cuttlefish {tag} includes a refined chat dashboard, independent scheduled Routines, reusable Workflows, password changes, and local Codex/Claude Code providers over managed HTTPS. It adds macOS background login startup and fixes sign-in, setup, and settings forms resetting during background checks. It also preserves destination focus when closing the mobile navigation drawer. It fixes completed workflow sessions occupying worker capacity: durable cleanup now releases each workflow session while preserving its results.
+    notes.write_text(f'''Cuttlefish {tag} adds dashboard updates, background-service restart, and the `cuttlefish update` command.
+
+Open **Settings → Updates** to check for a release, install it, or restart Cuttlefish. A detached updater verifies the archive and executable version before atomically selecting a complete release. Its durable journal resumes interrupted work and reports failures without replacing chats, settings, workspaces, edited prompts, databases, or provider sign-ins. The dashboard reconnects after service restart and offers an explicit reload button.
+
+New macOS setup starts the login service and opens the dashboard automatically. Use `setup --foreground` to opt out. Default installation adds `cuttlefish` to the command path for new terminals. Linux updates install the release and report when a manual foreground restart is required.
 
 Create a group at https://platform-production-105c.up.railway.app, choose **Connect a machine**, then run:
 
@@ -71,15 +75,18 @@ Create a group at https://platform-production-105c.up.railway.app, choose **Conn
 curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/{repository}/{tag}/install.sh | sh
 ```
 
-Choose **managed**, **local**, or an existing HTTPS address. Complete first-time administrator setup locally before managed access activates.
+**Existing installations need this bootstrap once to enable dashboard updates.** To preserve the current setup and avoid starting setup again:
 
-Includes the selected Mira/cyan shadcn preset with locally bundled fonts, attachments and artifacts, grouped provider progress, durable workflow runs, and scheduled task recovery. Routines accept their own prompts and agent workspaces, without a Workflow prerequisite. Existing schedules migrate with their identities and timing preserved. Change local credentials in Settings → Password, or hosted credentials in Account → Password; changing a password signs out existing sessions. Existing provider sign-ins stay on the execution machine. Installation-scoped relay authorization and customer-owned PostgreSQL remain separate from the hosted directory database.
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/{repository}/{tag}/install.sh | CUTTLEFISH_NO_SETUP=1 sh
+"$HOME/.local/share/cuttlefish/bin/cuttlefish" service restart
+```
 
-To update an existing installation without starting setup again, run the same installer with `CUTTLEFISH_NO_SETUP=1`, then restart Cuttlefish using its existing state directory. Back up the state directory and execution database before updating.
+The restart command above assumes an existing macOS background service and the default state directory. Use the original `--state-dir` for custom installations. For foreground installations, stop the old process and resume with the same state directory, or use `service install` on macOS. After this one-time upgrade, use the dashboard or `cuttlefish update`.
 
-Linux and macOS: ARM64 and x86-64. All archives are checksum-verified. [Build verification]({run['html_url']}) and [Rust CI]({check['html_url']}) passed, including the unchanged 100% line, function and region coverage gate.
+Linux and macOS: ARM64 and x86-64. [Build verification]({run['html_url']}) and [Rust CI]({check['html_url']}) passed, including the unchanged 100% line, function and region coverage gate. Frontend coverage is also gated at 100%. Isolated tests cover legacy upgrades, failed activation, unsafe archives, durable retries, and authenticated update requests through the packaged binary.
 
-This alpha uses Cuttlefish staging. The main process runs in the foreground by default. On macOS, stop it with Ctrl+C and run `cuttlefish service install` to start in the background and after login; use `cuttlefish service restart` after future updates. The connector has its own OS service. Public relay access supports JSON polling; streaming/WebSockets and Windows installation remain deferred. Routines use elapsed intervals rather than calendar cron; Plugins is reserved for future integrations.
+This alpha uses Cuttlefish staging. Managed relay access uses JSON polling. Windows installation and Linux automatic main-service management remain deferred. PostgreSQL backups remain the installation owner's responsibility; retained old binaries are not an automatic rollback of database migrations.
 ''')
     release = next((item for item in api('releases?per_page=100') if item['tag_name'] == tag), None)
     if release is None:

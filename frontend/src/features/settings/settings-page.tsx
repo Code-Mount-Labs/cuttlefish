@@ -1,3 +1,4 @@
+import { UpdatesPanel } from "../updates/updates-panel";
 import { ChangePasswordForm } from "../auth/change-password-form";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel, FieldGroup } from "@/components/ui/field";
@@ -494,6 +495,7 @@ export function SettingsPage({
           <ChangePasswordForm scope="local" onChanged={onPasswordChanged} />
         </Section>
       )}
+      <UpdatesPanel enabled={config.features?.updates === true} />
       <Remote remote={config.remote} />
       {config.role !== "router" && config.features?.chat && <Workspaces />}
       {config.role !== "agent" && (

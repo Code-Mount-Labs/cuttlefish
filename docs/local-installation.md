@@ -7,7 +7,7 @@ registered router; agent-only enrollment requires that router to be ready.
 ## Install a release
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.6/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.7/install.sh | sh
 ```
 
 Linux and macOS releases include ARM64 and x86-64 binaries. Windows installation
@@ -37,14 +37,16 @@ state directory and listener settings.
 
 The shell bootstrap downloads versioned, checksum-verified release archives.
 Windows scripts remain experimental and are not a supported installation path.
-Cuttlefish runs in the foreground by default. On macOS, the optional login
-service below runs it in the background. The managed relay connector has its
+On macOS, setup installs the login service and opens the dashboard by default.
+Use `setup --foreground` to keep it in the terminal. On Linux, it runs in the
+foreground. The managed relay connector has its
 own native OS service and survives supervisor restart.
 
 ## macOS background startup
 
-After completing setup, stop the foreground Cuttlefish process with Ctrl+C, then
-install a service as your normal macOS account (do not use sudo):
+New Mac installations enable this automatically. For an older or foreground
+installation, stop its foreground process with Ctrl+C, then install the service
+as your normal macOS account (do not use sudo):
 
 ```sh
 "$HOME/.local/share/cuttlefish/bin/cuttlefish" --state-dir "$HOME/.cuttlefish" service install --listen 127.0.0.1:8080
@@ -172,6 +174,51 @@ and the PostgreSQL volume securely. Automated backup, restore, secret rotation,
 primary migration, and read-replica management are not part of this increment.
 No Redis service is required.
 
+## Updates without a terminal
+
+Open **Settings → Updates**, check for a release, then choose **Update and
+restart**. The page shows download, verification, restart, and completion. It
+reconnects to the same installation, including through the managed relay. A
+reload button appears after success; the app never reloads an unsaved form
+without the user's action. The same page can restart the service without an
+update. Only a signed-in local administrator can perform these actions.
+
+For terminal use, a default installation adds the command to `~/.local/bin`:
+
+```sh
+cuttlefish update --check
+cuttlefish update
+cuttlefish service restart
+```
+
+Open a new terminal after first installation to load the command path. Custom
+installation paths can invoke `<install-dir>/bin/cuttlefish` directly. Supply
+`--state-dir <directory>` when updating a nondefault installation.
+
+The new bootstrap must be run once on older releases to enable managed updates.
+Application releases live in `<install-dir>/releases`; the `current` symlink
+selects one complete release, and stable `bin` entry points follow it. Downloads
+come only from the official Cuttlefish GitHub repository. The installer verifies
+SHA-256, rejects archive links and traversal, stages all binaries, and then
+atomically switches the active release. Previous binaries remain available.
+This verifies integrity against the published checksum, not a separate release
+signing authority.
+
+An independent helper records progress in `<state-dir>/updates/status.json` and
+holds an OS lock to avoid duplicate work. Restarting the supervisor resumes an
+interrupted operation. An already installed release is not downloaded again
+when only the service restart needs retrying. Failed operations remain visible
+and can be retried explicitly. The helper checks the restarted service's version
+before reporting completion. Foreground installations report that a manual
+restart is required; automatic service restart currently supports macOS.
+
+Updates do not replace the SQLite journals, PostgreSQL data or volume, workspace
+files, edited prompts, account settings, or provider credentials. Existing schema
+migrations apply normally when the new process starts. Older binaries are not
+restarted automatically after a migration failure: restoring application files
+alone cannot safely reverse a database migration. Back up persistent state and
+databases as usual.
+
 ## Local JSON API
 
 Browser mutations require the exact configured Origin and an authenticated local
@@ -181,7 +228,9 @@ login reservations survive restart. JSON inputs have a 16 KiB limit.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/local/status` | Whether a local administrator exists |
+| GET | `/api/local/status` | Whether a local administrator exists and the running version |
+| GET | `/api/local/updates` | Installed/available version and durable update progress |
+| POST | `/api/local/updates` | `check`, `install` with exact `version`, `retry`, or `restart`; 202 |
 | POST | `/api/local/setup` | One-time code, username, password |
 | POST | `/api/local/login` | Local administrator login |
 | POST | `/api/local/logout` | Revoke the current session |

@@ -106,3 +106,63 @@ async fn service_adapter_passes_exact_paths_without_shell_interpolation() {
         .is_err()
     );
 }
+
+#[test]
+fn saved_service_listener_is_specific_to_state_and_validated() {
+    use sha2::{Digest, Sha256};
+    let temp = tempfile::tempdir().expect("temp");
+    let state = temp.path().join("state");
+    std::fs::create_dir(&state).expect("state");
+    assert!(
+        address(&state, Some(temp.path()), "linux")
+            .expect("linux")
+            .is_none()
+    );
+    assert!(address(&state, None, "macos").expect("no home").is_none());
+    assert!(
+        address(&state, Some(temp.path()), "macos")
+            .expect("absent")
+            .is_none()
+    );
+    assert!(address(&state.join("missing"), Some(temp.path()), "macos").is_err());
+    let canonical = std::fs::canonicalize(&state).expect("canonical");
+    let hash = format!(
+        "{:x}",
+        Sha256::digest(canonical.as_os_str().as_encoded_bytes())
+    );
+    let folder = temp.path().join("Library/LaunchAgents");
+    std::fs::create_dir_all(&folder).expect("folder");
+    let path = folder.join(format!("com.cuttlefish.app.{}.plist", &hash[..32]));
+    for content in [
+        "unrecognized",
+        "<!-- Cuttlefish listener: bad -->",
+        "<!-- Cuttlefish listener: 127.0.0.1:8123 -->",
+    ] {
+        std::fs::write(&path, content).expect("plist");
+        assert_eq!(
+            address(&state, Some(temp.path()), "macos").is_ok(),
+            content.ends_with("8123 -->")
+        );
+    }
+    std::fs::remove_file(&path).expect("remove");
+    std::fs::create_dir(&path).expect("unreadable");
+    assert!(address(&state, Some(temp.path()), "macos").is_err());
+}
+
+#[tokio::test]
+async fn empty_executable_is_rejected_before_service_invocation() {
+    let dir = tempfile::tempdir().expect("directory");
+    assert!(
+        apply(
+            ServiceAction::Install,
+            dir.path(),
+            Path::new(""),
+            "127.0.0.1:8123".parse().expect("address"),
+            Some(dir.path().as_os_str()),
+            "macos",
+            "exit 0"
+        )
+        .await
+        .is_err()
+    );
+}

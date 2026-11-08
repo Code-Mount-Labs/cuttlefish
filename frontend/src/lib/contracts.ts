@@ -113,6 +113,7 @@ export const configSchema = z.object({
       chat: z.boolean().optional(),
       attachments: z.boolean().optional(),
       activity: z.boolean().optional(),
+      updates: z.boolean().optional(),
     })
     .optional(),
   database: z.object({

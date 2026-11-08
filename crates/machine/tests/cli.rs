@@ -83,6 +83,7 @@ async fn installed_binary_sets_up_and_resumes_without_replacing_identity() {
             .stdout(log.try_clone().expect("clone"))
             .stderr(log);
         if mode == "setup" {
+            command.arg("--foreground");
             command.args(["--platform", &platform]);
         }
         let mut child = command.spawn().expect("start");

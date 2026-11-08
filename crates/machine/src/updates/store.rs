@@ -14,7 +14,16 @@ pub(super) struct Store {
 }
 impl Store {
     pub fn open(state: &Path) -> Result<Self, Error> {
-        Self::open_with(state, secure_directory)
+        Self::open_with(state, {
+            #[cfg(unix)]
+            {
+                secure_directory
+            }
+            #[cfg(not(unix))]
+            {
+                |_| Ok(())
+            }
+        })
     }
     fn open_with(state: &Path, secure: fn(&Path) -> std::io::Result<()>) -> Result<Self, Error> {
         if !state.join("setup.sqlite").is_file() {
@@ -59,17 +68,10 @@ impl Store {
         self.write(&record)
     }
 }
+#[cfg(unix)]
 fn secure_directory(path: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-        Ok(())
-    }
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
 }
 pub(super) fn lock(path: &Path) -> Result<Option<File>, Error> {
     lock_with(path, File::try_lock)

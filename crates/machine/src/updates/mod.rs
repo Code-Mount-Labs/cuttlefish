@@ -111,22 +111,18 @@ struct ProcessFiles {
 impl Default for ProcessFiles {
     fn default() -> Self {
         Self {
+            #[cfg(unix)]
             secure: secure_log,
+            #[cfg(not(unix))]
+            secure: |_| Ok(()),
             duplicate: std::fs::File::try_clone,
         }
     }
 }
+#[cfg(unix)]
 fn secure_log(file: &std::fs::File) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = file;
-        Ok(())
-    }
+    use std::os::unix::fs::PermissionsExt;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))
 }
 
 #[derive(Debug)]

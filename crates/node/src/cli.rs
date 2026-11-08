@@ -79,6 +79,15 @@ enum Mode {
         #[arg(long)]
         instance: String,
     },
+    #[command(hide = true)]
+    Tools {
+        #[arg(long)]
+        journal: PathBuf,
+        #[arg(long)]
+        parent: CommandId,
+        #[arg(long)]
+        instance: String,
+    },
     /// Request cooperative shutdown of all local specialist processes.
     Stop {
         #[arg(long)]
@@ -174,17 +183,17 @@ pub async fn run(cli: Cli, executable: fn() -> std::io::Result<PathBuf>) -> Resu
     run_with_io(
         cli,
         executable,
-        BufReader::new(tokio::io::stdin()),
-        tokio::io::stdout(),
+        &mut BufReader::new(tokio::io::stdin()),
+        &mut tokio::io::stdout(),
     )
     .await
 }
 
-async fn run_with_io<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(
+async fn run_with_io(
     cli: Cli,
     executable: fn() -> std::io::Result<PathBuf>,
-    input: R,
-    mut output: W,
+    input: &mut (dyn AsyncBufRead + Unpin + Send),
+    mut output: &mut (dyn AsyncWrite + Unpin + Send),
 ) -> Result<(), NodeError> {
     match cli.mode {
         Mode::Permissions(command) => write_response(&mut output, &command.run().await?).await,
@@ -249,16 +258,14 @@ async fn run_with_io<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(
             journal,
             session,
             instance,
+        } => run_worker(&journal, session, &instance, executable).await,
+        Mode::Tools {
+            journal,
+            parent,
+            instance,
         } => {
             let journal = Journal::attach(&journal).await?;
-            let identity = journal.identity();
-            worker::run(
-                &journal,
-                session,
-                &instance,
-                FakeAgent::new(identity.group_id, identity.node_id),
-            )
-            .await
+            crate::tool_server::serve(&journal, parent, &instance, input, output).await
         }
         Mode::Stop { state_dir } => {
             Journal::attach(&state_dir.join("node.sqlite"))
@@ -410,3 +417,35 @@ async fn run_super_agent(
 #[cfg(test)]
 #[path = "../tests/internal/cli.rs"]
 mod tests;
+
+async fn run_worker(
+    journal: &std::path::Path,
+    session: SessionId,
+    instance: &str,
+    executable: fn() -> std::io::Result<PathBuf>,
+) -> Result<(), NodeError> {
+    let journal = Journal::attach(journal).await?;
+    let identity = journal.identity();
+    if let Some(config) = journal.execution_config(session).await? {
+        worker::run(
+            &journal,
+            session,
+            instance,
+            crate::local_provider::LocalAgent::new(
+                journal.clone(),
+                instance.to_owned(),
+                config,
+                executable()?,
+            ),
+        )
+        .await
+    } else {
+        worker::run(
+            &journal,
+            session,
+            instance,
+            FakeAgent::new(identity.group_id, identity.node_id),
+        )
+        .await
+    }
+}

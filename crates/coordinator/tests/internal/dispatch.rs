@@ -264,6 +264,7 @@ async fn outcome_write_failure_preserves_original_dispatch_and_thread() {
         report.events[0].command = command.clone();
         report.events[0].outcome = CommandOutcome::Completed {
             event: Box::new(orchestrator_protocol::agent::AgentEvent {
+                artifacts: Vec::new(),
                 version: command.version,
                 command_id: command.command_id,
                 group_id: command.group_id,

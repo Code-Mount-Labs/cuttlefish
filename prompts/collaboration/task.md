@@ -1,0 +1,1 @@
+Read a child task belonging to this conversation. Returns dispatch state and verified provider output when complete. A queued or claimed task is not complete. Use returned artifacts as references; do not claim files exist in another workspace. Poll sparingly, do independent work between checks, and report blockers truthfully.

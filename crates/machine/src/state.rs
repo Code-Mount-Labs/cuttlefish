@@ -29,6 +29,8 @@ pub struct Machine {
     pub(crate) passwords: crate::passwords::Passwords,
     backend: Arc<dyn DatabaseBackend>,
     _ownership: Arc<Ownership>,
+    pub(crate) provider_path:
+        fn(orchestrator_protocol::execution::LocalProvider) -> Option<PathBuf>,
     pub(crate) execution: Arc<tokio::sync::OnceCell<orchestrator_coordinator::store::Store>>,
 }
 impl Machine {
@@ -87,6 +89,7 @@ impl Machine {
             connector: Arc::new(crate::connector::NativeConnector::new(directory)),
             remote_client: crate::registry::Client::new,
             password_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+            provider_path: crate::chat::provider_path,
             files: crate::files::AtomicFiles::default(),
             passwords: crate::passwords::Passwords::default(),
             backend,

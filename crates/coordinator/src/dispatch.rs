@@ -183,10 +183,11 @@ impl Store {
                 ));
             }
         }
-        let command:Option<Json<AgentCommand>>=sqlx::query_scalar("UPDATE dispatches SET state='claimed' WHERE sequence=(SELECT d.sequence FROM dispatches d JOIN nodes n ON n.node_id=d.node_id JOIN thread_bindings t ON t.group_id=d.group_id AND t.thread_id=d.thread_id WHERE d.group_id=$1 AND d.node_id=$2 AND (d.state='queued' OR d.state='claimed' AND NOT d.accepted) AND (d.state='claimed' OR d.command#>>'{action,type}'<>'start' OR (n.dispatch_active < (n.profile->>'capacity')::bigint AND n.dispatch_workspaces @> jsonb_build_array(d.command#>>'{action,workspace_id}') AND (n.profile->'capabilities') @> (t.binding->'capabilities'))) ORDER BY d.sequence LIMIT 1) RETURNING command")
+        let command:Option<Json<AgentCommand>>=sqlx::query_scalar("UPDATE dispatches SET state='claimed' WHERE sequence=(SELECT d.sequence FROM dispatches d JOIN nodes n ON n.node_id=d.node_id JOIN thread_bindings t ON t.group_id=d.group_id AND t.thread_id=d.thread_id WHERE d.group_id=$1 AND d.node_id=$2 AND (d.state='queued' OR d.state='claimed' AND NOT d.accepted) AND NOT EXISTS(SELECT 1 FROM dispatches prior WHERE prior.group_id=d.group_id AND prior.thread_id=d.thread_id AND prior.sequence<d.sequence AND prior.state<>'completed') AND (d.state='claimed' OR d.command#>>'{action,type}'='cancel' OR (n.dispatch_active < (n.profile->>'capacity')::bigint AND n.dispatch_workspaces @> jsonb_build_array(t.binding->>'workspace_id') AND (n.profile->'capabilities') @> (t.binding->'capabilities'))) ORDER BY d.sequence LIMIT 1) RETURNING command")
             .bind(group).bind(node).fetch_optional(&mut *tx).await?;
         tx.commit().await?;
         Ok(DispatchBatch {
+            recovery: None,
             acknowledged: poll.accepted.clone(),
             command: command.map(|c| c.0),
         })
@@ -293,10 +294,26 @@ async fn validate_request(
     group: Uuid,
     request: &RouteRequest,
 ) -> Result<(), Error> {
-    let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM dispatches WHERE group_id=$1 AND thread_id=$2 AND state<>'completed')").bind(group).bind(Uuid::from(request.thread_id)).fetch_one(&mut **tx).await?;
-    if pending {
+    let (pending, cancelling, interrupted): (i64, bool, bool) = sqlx::query_as("SELECT count(*),COALESCE(bool_or(d.request#>>'{action,type}'='cancel'),false),COALESCE(bool_or(EXISTS(SELECT 1 FROM execution_activity a WHERE a.group_id=d.group_id AND a.command_id=d.command_id AND a.payload->>'phase'='needs_attention' AND a.sequence=(SELECT max(latest.sequence) FROM execution_activity latest WHERE latest.group_id=d.group_id AND latest.command_id=d.command_id))),false) FROM dispatches d WHERE d.group_id=$1 AND d.thread_id=$2 AND d.state<>'completed'")
+        .bind(group).bind(Uuid::from(request.thread_id)).fetch_one(&mut **tx).await?;
+    if interrupted {
+        return Err(Error::RoutingConflict(
+            "This turn was interrupted. Review the saved work and start a new chat in the same workspace; queued messages cannot run until the interruption is resolved.",
+        ));
+    }
+    if pending >= 32 {
+        return Err(Error::RoutingConflict(
+            "This chat already has 32 pending messages. Wait for a reply before sending more.",
+        ));
+    }
+    if pending > 0 && !matches!(request.action, RouteAction::Send { .. }) {
         return Err(Error::RoutingConflict(
             "wait for the outstanding command's result",
+        ));
+    }
+    if cancelling {
+        return Err(Error::RoutingConflict(
+            "This session is ending. Start a new chat to continue.",
         ));
     }
     let identity = match &request.action {

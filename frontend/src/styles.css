@@ -1,0 +1,917 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./theme.css";
+@import "shadcn/tailwind.css";
+@import "./fonts.css";
+@import "./features/automations/styles.css";
+@custom-variant dark (&:is(.dark *));
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply font-sans bg-background text-foreground;
+  }
+  button,
+  summary {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: default;
+  }
+  a {
+    color: inherit;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+  a:focus-visible,
+  summary:focus-visible,
+  .group-row:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+  }
+  [hidden] {
+    display: none;
+  }
+  h1,
+  h2,
+  p {
+    margin: 0;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-heading;
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.4px;
+  }
+  h2 {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  p {
+    line-height: 1.6;
+  }
+  svg {
+    flex-shrink: 0;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/* Layout rules stay below shadcn utilities in the cascade. */
+@layer components {
+  .error {
+    color: var(--destructive);
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+  .error:empty {
+    display: none;
+  }
+  .field-help,
+  .muted {
+    color: var(--muted-foreground);
+    font-size: 13px;
+  }
+  .global-error {
+    padding: 10px 20px;
+    color: var(--destructive);
+  }
+  .app-layout {
+    display: flex;
+    height: 100dvh;
+    min-height: 0;
+  }
+  .sidebar {
+    width: 248px;
+    flex-shrink: 0;
+    background: var(--sidebar);
+    display: flex;
+    flex-direction: column;
+    padding: 14px 12px 12px;
+    border-right: 1px solid var(--sidebar-border);
+  }
+  .brand {
+    font-size: 17px;
+    font-weight: 600;
+    padding: 4px 10px 23px;
+    letter-spacing: -0.2px;
+  }
+  .chat-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 11px;
+    margin: 10px 0;
+    color: var(--muted-foreground);
+  }
+  .chat-list {
+    flex: 1;
+    overflow: auto;
+    margin: 10px 0;
+  }
+  .chat-list [aria-current="page"],
+  .platform-nav [aria-current="page"] {
+    background: var(--sidebar-accent);
+  }
+  .sidebar-bottom {
+    display: grid;
+    gap: 3px;
+    margin-top: auto;
+    padding-top: 12px;
+  }
+  .conversation {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .conversation-header {
+    height: 64px;
+    min-height: 64px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    gap: 16px;
+  }
+  .conversation-heading {
+    flex: 1;
+    min-width: 0;
+  }
+  .conversation-heading h1 {
+    font-size: 14px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    letter-spacing: 0;
+  }
+  .conversation-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .conversation-tools [data-slot="native-select-wrapper"] {
+    min-width: 0;
+    max-width: 230px;
+  }
+  .conversation-tools select {
+    text-overflow: ellipsis;
+  }
+
+  .conversation-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+  .transcript {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 24px 24px 30px;
+  }
+  #chat-welcome {
+    margin: 0 0 24px;
+    font-size: 26px;
+    text-align: center;
+    letter-spacing: -0.5px;
+  }
+  .turn {
+    margin-bottom: 32px;
+  }
+  .message {
+    font-size: 16px;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+  }
+  .message.user {
+    background: var(--muted);
+    border-radius: 20px;
+    padding: 12px 18px;
+    margin: 0 0 20px auto;
+    width: fit-content;
+    max-width: 85%;
+    white-space: pre-wrap;
+  }
+  .message.agent {
+    padding: 0;
+  }
+  .message-body > p + *,
+  .message-body > ul + *,
+  .message-body > ol + * {
+    margin-top: 16px;
+  }
+  .message-body h1,
+  .message-body h2,
+  .message-body h3 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 24px 0 10px;
+  }
+  .message-body ul {
+    list-style: disc;
+    padding-left: 24px;
+  }
+  .message-body ol {
+    list-style: decimal;
+    padding-left: 24px;
+  }
+  .message-body li + li {
+    margin-top: 10px;
+  }
+  .message-body li > p + p {
+    margin-top: 8px;
+  }
+
+  .message-body a,
+  .inline-download {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .message-body pre {
+    overflow: auto;
+    background: var(--card);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 16px;
+    margin: 16px 0;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .message-body :not(pre) > code {
+    background: var(--accent);
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+  .message-body blockquote {
+    border-left: 3px solid var(--border);
+    padding-left: 15px;
+    margin: 16px 0;
+  }
+  .table-scroll {
+    overflow-x: auto;
+    margin: 16px 0;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    text-align: left;
+  }
+  th,
+  td {
+    border-bottom: 1px solid var(--border);
+    padding: 9px 12px;
+  }
+  th {
+    font-weight: 600;
+  }
+  .message-actions {
+    margin-top: 12px;
+    color: var(--muted-foreground);
+  }
+  .task-activity {
+    font-size: 13px;
+    color: var(--muted-foreground);
+    margin: 0 0 18px;
+  }
+  .task-activity summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    list-style: none;
+    padding: 4px 0;
+  }
+  .task-activity summary::-webkit-details-marker {
+    display: none;
+  }
+  .activity-chevron {
+    transition: transform 120ms ease;
+  }
+  .task-activity details[open] .activity-chevron {
+    transform: rotate(180deg);
+  }
+  .activity-meta {
+    font-size: 12px;
+    color: var(--muted-foreground);
+    margin-left: 8px;
+  }
+  .activity-timeline {
+    border-left: 1px solid var(--border);
+    margin: 12px 0 8px 7px;
+    padding-left: 18px;
+    list-style: none;
+    display: grid;
+    gap: 9px;
+  }
+  .activity-timeline li {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .activity-timeline time {
+    font-size: 12px;
+    white-space: nowrap;
+    color: var(--muted-foreground);
+  }
+  .activity-hint {
+    font-size: 12px;
+    margin-top: 6px;
+    max-width: 65ch;
+  }
+  .attention {
+    color: var(--destructive);
+  }
+  .task-activity.attention .activity-timeline {
+    color: var(--muted-foreground);
+  }
+  .offline {
+    color: var(--warning);
+  }
+  .spinning {
+    animation: spin 1.2s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .composer-container {
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 0 24px 22px;
+  }
+  .composer-container > .error {
+    padding: 0 10px 8px;
+  }
+  .composer-dock #chat-status {
+    font-size: 12px;
+    color: var(--muted-foreground);
+    margin: 0 10px 8px;
+    min-height: 18px;
+  }
+  .composer {
+    width: 100%;
+  }
+  .composer-input-group {
+    overflow: hidden;
+  }
+  .composer-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 12px 10px;
+  }
+  .composer-container {
+    position: relative;
+  }
+  .jump-to-latest {
+    position: absolute;
+    top: -40px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .conversation[data-empty="true"] .conversation-scroll {
+    flex: 0 1 auto;
+    padding-top: clamp(52px, 23vh, 230px);
+  }
+  .conversation[data-empty="true"] .transcript {
+    padding-bottom: 0;
+  }
+  .conversation[data-empty="true"] .composer-dock #chat-status:empty {
+    display: none;
+  }
+  #draft-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+    padding: 0 12px;
+  }
+  #draft-attachments:empty {
+    display: none;
+  }
+  .file-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 9px 10px;
+    margin: 4px 0;
+    min-width: 0;
+    max-width: 100%;
+    width: fit-content;
+    font-size: 13px;
+    background: var(--card);
+    text-align: left;
+    white-space: normal;
+  }
+  .file-card > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 270px;
+  }
+  .file-card small {
+    display: block;
+    color: var(--muted-foreground);
+    font-size: 11px;
+  }
+  .file-card img {
+    width: 38px;
+    height: 38px;
+    object-fit: cover;
+    border-radius: 4px;
+  }
+  .file-card > button {
+    margin-left: auto;
+  }
+  .attachment-result {
+    margin-top: 12px;
+  }
+  .artifact-preview {
+    display: block;
+    max-width: 100%;
+    max-height: 520px;
+    border-radius: 12px;
+    margin-top: 12px;
+  }
+  .auth-page {
+    max-width: 380px;
+    margin: clamp(50px, 16vh, 160px) auto;
+    padding: 24px;
+  }
+  .auth-brand {
+    margin-bottom: 42px;
+    font-weight: 600;
+    font-size: 18px;
+  }
+  .auth-page h1 {
+    margin-bottom: 24px;
+  }
+  .form-actions,
+  .row-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .settings-page {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0 24px 60px;
+  }
+  .settings-header {
+    display: flex;
+    justify-content: space-between;
+    padding: 15px 0 36px;
+  }
+  .settings-header > button:last-child {
+    margin-left: auto;
+  }
+  .machine-identity {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 9px;
+    margin: 24px 0;
+    font-size: 13px;
+  }
+  .machine-identity dt {
+    color: var(--muted-foreground);
+  }
+  .machine-identity dd {
+    overflow-wrap: anywhere;
+    margin: 0;
+  }
+  .settings-section {
+    padding: 28px 0;
+    border-top: 1px solid var(--border);
+  }
+  .settings-section h2 {
+    margin-bottom: 20px;
+  }
+  .settings-section > p {
+    margin-bottom: 14px;
+  }
+  .settings-section > form {
+    max-width: 520px;
+  }
+  .settings-section > button {
+    margin-bottom: 12px;
+  }
+  .workspace-rows {
+    list-style: none;
+    margin: 20px 0 0;
+    padding: 0;
+  }
+  .workspace-rows li {
+    display: grid;
+    gap: 5px;
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  .workspace-rows code {
+    overflow-wrap: anywhere;
+    font-size: 12px;
+    color: var(--muted-foreground);
+  }
+  .workspace-rows span {
+    font-size: 13px;
+  }
+  .mobile-menu {
+    position: fixed;
+    top: 14px;
+    left: 12px;
+    z-index: 20;
+  }
+  .mobile-sidebar > div {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .mobile-sidebar .workspace-brand {
+    padding-right: 38px;
+  }
+  .mobile-sidebar .brand {
+    padding-right: 40px;
+  }
+  .platform-nav {
+    display: grid;
+    gap: 4px;
+  }
+  .platform-content {
+    flex: 1;
+    min-width: 0;
+    overflow: auto;
+  }
+  .platform-page {
+    max-width: 1100px;
+    padding: 32px 40px;
+    margin: 0 auto;
+  }
+  .section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .group-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .group-row {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 90px 90px;
+    gap: 16px;
+    text-align: left;
+    padding: 17px 12px;
+    border-bottom: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .group-row:hover,
+  .group-row[aria-pressed="true"] {
+    background: var(--accent);
+  }
+  .group-row strong {
+    font-weight: 500;
+  }
+  .group-row span {
+    color: var(--muted-foreground);
+    font-size: 13px;
+  }
+  .group-detail {
+    margin-top: 40px;
+  }
+  .group-identifier {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+    font-size: 12px;
+    color: var(--muted-foreground);
+  }
+  .machine-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .machine-list li {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 18px 0;
+    border-top: 1px solid var(--border);
+  }
+  .machine-list li > div:first-child {
+    display: grid;
+    gap: 4px;
+    flex: 1;
+  }
+  .machine-list strong {
+    font-weight: 500;
+  }
+  .machine-list span {
+    font-size: 13px;
+    color: var(--muted-foreground);
+  }
+  .machine-links {
+    display: grid;
+    gap: 4px;
+    font-size: 13px;
+  }
+  .online {
+    color: var(--success);
+  }
+  [data-slot="dialog-content"] {
+    max-height: 90dvh;
+    overflow-y: auto;
+  }
+  @media (max-width: 760px) {
+    .conversation-header {
+      padding-left: 60px;
+      padding-right: 14px;
+    }
+    .transcript {
+      padding: 20px 18px;
+    }
+    .composer-container {
+      padding: 0 12px 12px;
+    }
+    .message.user {
+      max-width: 92%;
+    }
+    .activity-meta {
+      display: none;
+    }
+    .activity-timeline time {
+      font-size: 11px;
+    }
+    .platform-page {
+      padding: 76px 20px 28px;
+    }
+    .section-heading {
+      align-items: flex-start;
+    }
+    .section-heading .row-actions {
+      gap: 4px;
+    }
+    .group-row {
+      grid-template-columns: 1fr 65px 65px;
+      gap: 8px;
+      padding: 15px 4px;
+    }
+    .machine-list li {
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .machine-links {
+      width: 100%;
+    }
+    .settings-page {
+      padding-left: 20px;
+      padding-right: 20px;
+    }
+    .form-actions {
+      flex-wrap: wrap;
+    }
+    .file-card > span {
+      max-width: 200px;
+    }
+    .group-identifier code {
+      overflow-wrap: anywhere;
+    }
+    .message {
+      font-size: 15px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* CSS containment replaces runtime style injection under our strict CSP. */
+  body:has([data-slot="dialog-content"]) {
+    overflow: hidden;
+  }
+  [data-slot="dialog-overlay"] {
+    touch-action: pinch-zoom;
+  }
+  [data-slot="dialog-content"] {
+    overscroll-behavior: contain;
+  }
+
+  .workspace-brand {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 38px;
+    padding: 0 8px 12px;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+  }
+  .workspace-nav {
+    display: grid;
+    gap: 3px;
+    padding: 2px 0 20px;
+    border-bottom: 1px solid var(--sidebar-border);
+  }
+  .workspace-nav [aria-current="page"] {
+    background: var(--sidebar-accent);
+    color: var(--sidebar-accent-foreground);
+  }
+  .workspace-nav button,
+  .workspace-account button,
+  .chat-history-item {
+    min-height: 34px;
+  }
+  .workspace-nav svg,
+  .workspace-account svg {
+    color: var(--muted-foreground);
+  }
+  .history-heading {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted-foreground);
+    padding: 20px 8px 10px;
+  }
+  .history-search {
+    margin-bottom: 8px;
+  }
+  .chat-list {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .chat-history-item {
+    flex-shrink: 0;
+    text-align: left;
+  }
+  .history-empty {
+    color: var(--muted-foreground);
+    font-size: 12px;
+    padding: 12px 8px;
+  }
+  .workspace-account {
+    border-top: 1px solid var(--sidebar-border);
+    margin-top: 14px;
+  }
+  .automation-page {
+    flex: 1;
+    min-width: 0;
+    padding: 32px;
+    overflow-y: auto;
+  }
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .automation-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .automation-list > li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .automation-list h2 {
+    font-size: 15px;
+  }
+  .run-history {
+    margin-top: 40px;
+  }
+  .empty-section {
+    margin-top: 28px;
+    color: var(--muted-foreground);
+  }
+  @media (max-width: 760px) {
+    .automation-page {
+      padding: 64px 16px 24px;
+    }
+    .mobile-menu {
+      left: 12px;
+      width: 44px;
+      height: 44px;
+    }
+    .conversation-heading {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .conversation-tools {
+      flex: 1;
+      justify-content: space-between;
+    }
+    .conversation-tools [data-slot="native-select-wrapper"] {
+      max-width: calc(100vw - 124px);
+    }
+    .composer-actions button,
+    .conversation-tools button,
+    .automation-touch-target,
+    .file-card,
+    .file-card button {
+      min-width: 44px;
+      min-height: 44px;
+    }
+    .workspace-nav button,
+    .workspace-account button,
+    .chat-history-item {
+      min-height: 44px;
+    }
+    .message {
+      font-size: 16px;
+    }
+    .conversation[data-empty="true"] .conversation-scroll {
+      padding-top: 16vh;
+    }
+
+    .automation-list > li {
+      flex-wrap: wrap;
+    }
+  }
+
+  .rail-bottom {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: auto;
+  }
+  .automation-page {
+    max-width: 1100px;
+    margin: 0 auto;
+    width: 100%;
+  }
+}
+
+@layer components {
+  .activity-update {
+    margin: 0.65rem 0 0.35rem;
+    color: var(--foreground);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.6;
+    font-size: 0.875rem;
+  }
+  .activity-freshness {
+    margin: 0.4rem 0 0;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+  }
+  .activity-count {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+  }
+  .activity-timeline {
+    max-height: 24rem;
+    overflow-y: auto;
+  }
+  .activity-timeline li {
+    align-items: start;
+    padding-block: 0.35rem;
+  }
+  .activity-timeline li > span {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  .composer-queue-hint {
+    padding: 0 1rem;
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+  }
+}

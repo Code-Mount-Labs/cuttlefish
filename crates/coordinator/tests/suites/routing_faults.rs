@@ -79,6 +79,7 @@ async fn http_errors(
     token: &orchestrator_protocol::sync::NodeToken,
     req: &orchestrator_protocol::routing::RouteRequest,
 ) {
+    ready(f, 9, 4).await; // Multiple destinations still require a configured selector.
     let server = Server::start(web::router(f.store.clone())).await;
     let client = reqwest::Client::new();
     for path in [

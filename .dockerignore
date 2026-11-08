@@ -7,3 +7,7 @@ target
 private
 **/.DS_Store
 **/*.sqlite*
+
+frontend/node_modules
+frontend/coverage
+frontend/dist

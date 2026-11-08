@@ -489,7 +489,7 @@ dependencies = [
 
 [[package]]
 name = "cuttlefish-machine"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.9"
 dependencies = [
  "argon2",
  "axum",
@@ -500,6 +500,7 @@ dependencies = [
  "orchestrator-prompts",
  "orchestrator-protocol",
  "reqwest",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -513,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "cuttlefish-platform"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.9"
 dependencies = [
  "argon2",
  "axum",
@@ -1478,7 +1479,7 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "orchestrator-agents"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.9"
 dependencies = [
  "axum",
  "orchestrator-domain",
@@ -1494,9 +1495,10 @@ dependencies = [
 
 [[package]]
 name = "orchestrator-coordinator"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.9"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "clap",
  "orchestrator-agents",
  "orchestrator-domain",
@@ -1517,7 +1519,7 @@ dependencies = [
 
 [[package]]
 name = "orchestrator-domain"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.9"
 dependencies = [
  "orchestrator-protocol",
  "serde_json",
@@ -1526,9 +1528,10 @@ dependencies = [
 
 [[package]]
 name = "orchestrator-node"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.9"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "clap",
  "orchestrator-agents",
  "orchestrator-domain",
@@ -1547,14 +1550,14 @@ dependencies = [
 
 [[package]]
 name = "orchestrator-prompts"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.9"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "orchestrator-protocol"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.9"
 dependencies = [
  "serde",
  "serde_json",

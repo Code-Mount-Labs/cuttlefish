@@ -168,5 +168,19 @@ async fn losing_database_between_validation_and_transaction_fails_closed() {
         Err(Error::Database(sqlx::Error::PoolTimedOut))
     ));
     replica.close().await;
+    replica.pool = fail_second_checkout(&f.url).await;
+    assert!(matches!(
+        replica
+            .change_password(
+                &owner,
+                crate::accounts::PasswordChange {
+                    current_password: "test-password-123".into(),
+                    new_password: "replacement-password".into()
+                }
+            )
+            .await,
+        Err(Error::Database(sqlx::Error::PoolTimedOut))
+    ));
+    replica.close().await;
     f.close().await;
 }

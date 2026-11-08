@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$version = if ($env:CUTTLEFISH_VERSION) { $env:CUTTLEFISH_VERSION } else { 'v0.2.0-alpha.2' }
+$version = if ($env:CUTTLEFISH_VERSION) { $env:CUTTLEFISH_VERSION } else { 'v0.2.0-alpha.7' }
 if ($version -notmatch '^[a-zA-Z0-9._-]+$') { throw 'Invalid release version.' }
 $root = if ($env:CUTTLEFISH_INSTALL_DIR) { $env:CUTTLEFISH_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Cuttlefish' }
 $asset = "cuttlefish-$version-x86_64-pc-windows-msvc.zip"

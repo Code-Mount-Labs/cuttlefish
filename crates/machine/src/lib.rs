@@ -2,18 +2,22 @@
 //! on the user's machine; the dashboard starts before `PostgreSQL` is configured.
 
 pub mod auth;
+pub mod chat;
 pub mod cli;
 pub mod connector;
 pub mod dependencies;
 pub mod docker;
 mod files;
+mod installation;
 mod passwords;
 pub mod registry;
 pub mod remote;
 pub mod resources;
 pub mod runtime;
+pub mod service;
 pub mod settings;
 pub mod state;
+pub mod updates;
 pub mod web;
 
 use thiserror::Error;
@@ -53,3 +57,5 @@ pub enum Error {
 #[cfg(test)]
 #[path = "../tests/internal/mod.rs"]
 mod tests;
+
+mod automations;

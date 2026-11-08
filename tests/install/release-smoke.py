@@ -98,7 +98,7 @@ class Installation:
         args = [str(self.binaries / "cuttlefish"), "--state-dir", str(self.root / "state")]
         args += ["setup" if setup else "serve", "--listen", self.origin.removeprefix("http://")]
         if setup:
-            args += ["--platform", f"http://127.0.0.1:{self.registry.server_port}"]
+            args += ["--foreground", "--platform", f"http://127.0.0.1:{self.registry.server_port}"]
         self.child = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=self.log,
                                       stderr=self.log, text=True)
         if setup:

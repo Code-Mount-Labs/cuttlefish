@@ -361,8 +361,8 @@ async fn test_run(cli: Cli, executable: fn() -> io::Result<PathBuf>) -> Result<(
     run_with_io(
         cli,
         executable,
-        &b"{\"type\":\"shutdown\"}\n"[..],
-        Vec::new(),
+        &mut &b"{\"type\":\"shutdown\"}\n"[..],
+        &mut Vec::new(),
     )
     .await
 }
@@ -551,6 +551,7 @@ async fn execution_mode_owns_the_supervisor_and_supports_one_shot_and_watch() {
             "/v1/dispatch/poll",
             post(|Json(poll): Json<DispatchPoll>| async move {
                 Json(DispatchBatch {
+                    recovery: None,
                     acknowledged: poll.accepted,
                     command: None,
                 })
@@ -647,4 +648,102 @@ async fn super_agent_configuration_is_explicit_and_failures_are_reported() {
         Err(NodeError::Transport(_))
     ));
     fixture.journal.close().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn worker_mode_resolves_local_provider_and_preserves_uncertain_execution() {
+    use orchestrator_protocol::execution::{LocalProvider, ProviderWorkspace};
+    use std::os::unix::fs::PermissionsExt;
+    for fail in [false, true] {
+        let fixture = common::Fixture::new().await;
+        let directory = fixture.temp.path().canonicalize().expect("directory");
+        let executable = directory.join("provider");
+        let response = serde_json::json!({"type":"result","session_id":common::id::<SessionId>(4),"is_error":false,"subtype":"success","result":"Done"});
+        let body = if fail {
+            "exit 1".to_owned()
+        } else {
+            format!("cat >/dev/null\nprintf '%s\\n' '{response}'")
+        };
+        std::fs::write(&executable, format!("#!/bin/sh\n{body}\n")).expect("provider");
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
+            .expect("mode");
+        let instructions = directory.join("instructions.md");
+        std::fs::write(&instructions, "Test").expect("prompt");
+        fixture
+            .journal
+            .configure_execution(&crate::execution::ExecutionConfig {
+                workspace: ProviderWorkspace {
+                    workspace_id: common::id(5),
+                    name: "Worker".into(),
+                    provider: LocalProvider::Claude,
+                    allow_edits: true,
+                },
+                executable,
+                directory,
+                instructions,
+            })
+            .await
+            .expect("configure");
+        fixture.accepted().await;
+        fixture
+            .journal
+            .accept(&common::cancel(11), common::instance())
+            .await
+            .expect("cancel");
+        let mode = || Cli {
+            mode: Mode::Worker {
+                journal: fixture.journal.path().to_owned(),
+                session: common::id(4),
+                instance: common::instance().to_string(),
+            },
+        };
+        assert!(
+            test_run(mode(), || Err(std::io::Error::other(
+                "executable unavailable"
+            )))
+            .await
+            .is_err()
+        );
+        let result = test_run(mode(), std::env::current_exe).await;
+        assert_eq!(result.is_err(), fail);
+        assert!(
+            test_run(mode(), std::env::current_exe).await.is_err(),
+            "a worker cannot register twice"
+        );
+        let raw = fixture.raw().await;
+        sqlx::query("DROP TABLE workspace_providers")
+            .execute(&raw)
+            .await
+            .expect("fault");
+        assert!(test_run(mode(), std::env::current_exe).await.is_err());
+        raw.close().await;
+    }
+}
+
+#[tokio::test]
+async fn tool_server_cli_attaches_only_to_an_existing_journal() {
+    let f = common::Fixture::new().await;
+    for path in [
+        f.journal.path().to_path_buf(),
+        f.temp.path().join("missing"),
+    ] {
+        let exists = path.exists();
+        let mut output = Vec::new();
+        let args = Cli {
+            mode: Mode::Tools {
+                journal: path,
+                parent: common::id(6),
+                instance: common::instance().to_string(),
+            },
+        };
+        let result = run_with_io(
+            args,
+            std::env::current_exe,
+            &mut std::io::Cursor::new(b"{\"id\":1,\"method\":\"initialize\"}\n"),
+            &mut output,
+        )
+        .await;
+        assert_eq!(result.is_ok(), exists);
+    }
 }

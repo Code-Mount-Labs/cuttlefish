@@ -23,6 +23,7 @@ argon2.workspace = true
 axum.workspace = true
 tempfile.workspace = true
 tower.workspace = true
+semver = "1.0.28"
 
 [dev-dependencies]
 cuttlefish-platform = { path = "../platform" }

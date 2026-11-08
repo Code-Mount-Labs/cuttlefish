@@ -11,11 +11,11 @@ command names remain stable for compatibility with current scripts and journals.
 
 **Implemented: milestones 1–4 and the first super-agent collaboration increment.** This repository contains the shared protocol,
 pure task lifecycle, asynchronous adapter contract, and a node runtime with a
-SQLite journal and supervised specialist processes. Each specialist currently
-runs the deterministic fake adapter. A separate coordination service authenticates
+SQLite journal and supervised specialist processes. Specialists can use the deterministic fake adapter or an explicitly configured
+local Codex/Claude Code adapter. A separate coordination service authenticates
 nodes and stores shared routing context in PostgreSQL. It has no execution powers.
 It now makes constrained LLM routing decisions and delivers tasks with durable
-thread/session affinity and conservative failover. Real coding providers remain future work. A separate JSON-first hosted platform
+thread/session affinity and conservative failover. The current development increment adds [chat, attachments, and local providers](docs/chat-and-providers.md), plus [independent scheduled routines and reusable workflows](docs/routines-and-workflows.md). A separate JSON-first hosted platform
 now provides accounts, groups, and the installation directory. The node can now plan goals, delegate child tasks,
 track progress, and propose catalog-backed learning with human approval.
 See [Super-agent collaboration](#super-agent-collaboration) and the
@@ -24,9 +24,9 @@ See [Super-agent collaboration](#super-agent-collaboration) and the
 The first Octop-review improvement adds [durable runtime permissions and provider
 session bindings](docs/runtime-permissions.md): exact human approvals, local
 reviewer credentials, conservative reply delivery and restart recovery. This is
-the adapter contract and local review surface; the production worker still uses
-the fake adapter. A real provider, remote review UI and permission synchronization
-to the router are subsequent integrations.
+the adapter contract and local review surface. The new local provider adapters
+reuse durable session bindings; interactive provider permission callbacks and
+a remote review UI remain subsequent integrations.
 
 ## Hosted platform
 
@@ -49,16 +49,39 @@ PostgreSQL on the machine. Setup can be deferred and completed later.
 Create a group on the staging website, choose **Connect a machine**, then run:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.2/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.9/install.sh | sh
 ```
 
 The installer verifies release checksums and asks for your group ID and one-use
 enrollment code. Linux and macOS binaries support ARM64 and x86-64. Windows
-installation is deferred. This alpha runs in the foreground; automatic OS service
-registration for the main process is not yet included. Managed remote access installs
-its own recoverable connector service. Choose local-only, Cuttlefish-managed HTTPS,
-or an existing HTTPS address during setup; see [remote access](docs/remote-access.md). Real specialist providers remain future work.
+installation is deferred. On macOS, setup starts a background login service and
+opens the dashboard; the terminal can be closed. Use `setup --foreground` to opt out.
+Linux systemd support is implemented for the next release: setup starts a
+background service, and updates restart it automatically. Managed remote access installs its own
+recoverable connector service. Choose local-only, Cuttlefish-managed HTTPS,
+or an existing HTTPS address during setup; see [remote access](docs/remote-access.md).
+The documentation describes the current source; check the release notes for the
+features included in an installed version.
 See [local setup and database choices](docs/local-installation.md).
+
+After this release is installed, update from **Settings → Updates → Check for
+updates → Update and restart**, or run `cuttlefish update`. The updater preserves
+chats, settings, workspaces, edited prompts, databases, and provider sign-ins.
+Existing installations need the new bootstrap once to enable this command.
+
+## Using the dashboard
+
+The installation sidebar provides **Chats**, **Routines**, **Workflows**, and
+**Plugins**. Chats support follow-ups, attachments, and provider activity.
+Routines schedule a prompt in an agent workspace without requiring a workflow.
+Workflows save prompts for repeated manual runs. Plugins is reserved for future
+integrations. See [chat and providers](docs/chat-and-providers.md) and
+[routines and workflows](docs/routines-and-workflows.md).
+
+Change the installation administrator password in **Settings → Password**, or
+the hosted account password in **Account → Password**. These are separate
+accounts. Both changes require the current password and sign that account out
+on all devices. See [password management](docs/local-installation.md#passwords).
 
 ## Workspace
 
@@ -105,6 +128,10 @@ coverage** of instrumented workspace source. Only files under test directories a
 excluded from the report; no production modules or error paths are excluded.
 Dependencies and compiler-generated code are not a guarantee of this metric.
 Stable LLVM region coverage is not branch coverage or proof of correctness.
+
+The dashboards use React, TypeScript, and shadcn/ui. Frontend development,
+architecture, and build instructions are in [frontend/README.md](frontend/README.md).
+Their separate coverage gate requires 100% statements, branches, functions, and lines.
 
 To create a browsable report after running coverage:
 

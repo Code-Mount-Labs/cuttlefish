@@ -34,7 +34,7 @@ assert re.fullmatch(r'[a-f0-9]{40}', source)
 manifest = api('contents/Cargo.toml?ref=' + source)
 version = tomllib.loads(base64.b64decode(manifest['content']).decode())['workspace']['package']['version']
 assert tag == 'v' + version
-required_jobs = {'Full source coverage', 'Test (ubuntu-latest)', 'Test (macos-latest)', 'Test (windows-latest)'}
+required_jobs = {'React frontend', 'Full source coverage', 'Test (ubuntu-latest)', 'Test (macos-latest)', 'Test (windows-latest)'}
 checks = api('actions/workflows/ci.yml/runs?head_sha=' + source + '&status=success&per_page=100')['workflow_runs']
 assert checks, 'No passing Rust CI run for the exact build source'
 verified = False
@@ -63,7 +63,15 @@ with tempfile.TemporaryDirectory(prefix='cuttlefish-release-') as folder:
     assets.append(str(sums))
     hashes[sums.name] = hashlib.sha256(sums.read_bytes()).hexdigest()
     notes = root / 'notes.md'
-    notes.write_text(f'''Cuttlefish {tag} adds managed HTTPS through the Cuttlefish relay, without a personal domain or Cloudflare account.
+    notes.write_text(f'''Cuttlefish {tag} adds reviewed recovery for interrupted tasks.
+
+Interrupted tasks now offer **Inspect saved work → Continue from checkpoint**. The original agent checks the saved journal, provider session, workspace contents, confirmed provider shutdown and unresolved approvals/tool calls. Approval is tied to the exact checkpoint; changed state requires another inspection.
+
+Continuation keeps the original chat, task, files, provider session and queued follow-ups. It inspects existing work and verifies uncertain effects before continuing remaining steps. Review and launch intent survive restarts and lost responses. Duplicate launches cannot interrupt the registered worker, and recovery never falls back to a fresh provider session.
+
+Update the router and participating agents together to enable recovery. The continuation instruction is editable at `prompts/execution/recovery.md`; existing prompt edits and provider sign-ins are preserved. Legacy interruptions without a confirmed provider shutdown record remain blocked with an explanation. The original agent and provider session must be available. This feature is not a workspace backup; uncertain external effects still require verification.
+
+The dashboard update/restart controls and `cuttlefish update` remain available. A detached updater verifies the archive and executable version before atomically selecting a complete release. The dashboard reconnects after restart and offers an explicit reload button.
 
 Create a group at https://platform-production-105c.up.railway.app, choose **Connect a machine**, then run:
 
@@ -71,13 +79,18 @@ Create a group at https://platform-production-105c.up.railway.app, choose **Conn
 curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/{repository}/{tag}/install.sh | sh
 ```
 
-Choose **managed**, **local**, or an existing HTTPS address. Complete first-time administrator setup locally before managed access activates.
+**Existing installations need this bootstrap once to enable dashboard updates.** To preserve the current setup and avoid starting setup again:
 
-Includes installation-scoped authorization, durable remote settings and revocation, and supervised native connectors that recover after supervisor or relay restart. Customer execution PostgreSQL stays separate from the hosted directory database.
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/{repository}/{tag}/install.sh | CUTTLEFISH_NO_SETUP=1 sh
+"$HOME/.local/share/cuttlefish/bin/cuttlefish" service restart
+```
 
-Linux and macOS: ARM64 and x86-64. All archives are checksum-verified. [Build verification]({run['html_url']}) and [Rust CI]({check['html_url']}) passed, including the unchanged 100% line, function and region coverage gate.
+The restart command above assumes an existing macOS background service and the default state directory. Use the original `--state-dir` for custom installations. For foreground installations, stop the old process and resume with the same state directory, or use `service install` on macOS. After this one-time upgrade, use the dashboard or `cuttlefish update`.
 
-This alpha uses Cuttlefish staging. The main process runs in the foreground; the connector has its own OS service. Public relay access supports JSON polling; streaming/WebSockets, Windows installation and live specialist providers remain deferred.
+Linux and macOS: ARM64 and x86-64. [Build verification]({run['html_url']}) and [Rust CI]({check['html_url']}) passed, including the unchanged 100% line, function and region coverage gate. Frontend coverage is also gated at 100%. Isolated tests cover legacy upgrades, failed activation, unsafe archives, durable retries, and authenticated update requests through the packaged binary.
+
+This alpha uses Cuttlefish staging. Managed relay access uses JSON polling. Windows installation and Linux automatic main-service management remain deferred. PostgreSQL backups remain the installation owner's responsibility; retained old binaries are not an automatic rollback of database migrations.
 ''')
     release = next((item for item in api('releases?per_page=100') if item['tag_name'] == tag), None)
     if release is None:

@@ -8,6 +8,33 @@ permissions:
   contents: read
 
 jobs:
+  frontend:
+    name: React frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm run format:check --prefix frontend
+      - run: npm run lint --prefix frontend
+      - run: npm run coverage --prefix frontend
+      - run: npm run build --prefix frontend
+      - run: npm run build:platform --prefix frontend
+      - run: npm run test:vite --prefix frontend
+      - run: npm run build:embedded --prefix frontend
+      - name: Verify embedded assets match source
+        run: git diff --exit-code -- web
+      - name: Upload frontend coverage
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+
   test:
     name: Test (${{ matrix.os }})
     strategy:
@@ -37,8 +64,19 @@ jobs:
           sh -n install.sh
           sh -n install/docker.sh
           sh -n install/relay.sh
+          sh -n install/service-macos.sh
+          sh -n install/service-linux.sh
+          python3 tests/install/service-linux.py
+          python3 tests/install/service.py
+          python3 tests/install/update.py
           bash -n deploy/relay/entrypoint.sh
           python3 experiments/relay/service_smoke.py
+      - name: Verify real macOS login service lifecycle
+        if: runner.os == 'macOS'
+        run: python3 tests/install/service-macos-live.py
+      - name: Verify real Linux systemd lifecycle
+        if: runner.os == 'Linux'
+        run: sudo python3 tests/install/service-linux-live.py install/service-linux.sh "$RUNNER_TEMP/cuttlefish-systemd"
       - name: Validate PowerShell installers
         if: runner.os == 'Windows'
         shell: pwsh
@@ -51,6 +89,17 @@ jobs:
           }
       - name: Unit and integration tests
         run: cargo test --workspace --all-targets --locked
+      - name: Verify Linux dashboard and CLI updates under systemd
+        if: runner.os == 'Linux'
+        run: |
+          cargo build --locked -p cuttlefish-machine -p orchestrator-node -p orchestrator-coordinator --bins
+          sudo python3 tests/install/service-linux-update.py target/debug "$RUNNER_TEMP/cuttlefish-systemd-update"
+      - name: Browser chat contracts
+        if: runner.os == 'Linux'
+        run: |
+          export BROWSER_BIN="$(command -v google-chrome)"
+          node tests/web/chat.mjs
+          CHAT_TEST_BASE=/i/00000000-0000-0000-0000-000000000123 node tests/web/chat.mjs
       - name: Documentation tests
         run: cargo test --workspace --doc --locked
       - name: Build documentation

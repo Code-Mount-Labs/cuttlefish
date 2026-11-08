@@ -15,7 +15,7 @@ use std::sync::Arc;
 /// Routing has only selection and persistence powers; execution lives on nodes.
 #[derive(Debug, Clone)]
 pub struct RoutingService {
-    store: Store,
+    pub(crate) store: Store,
     selector: Arc<dyn Selector>,
 }
 impl RoutingService {
@@ -45,6 +45,7 @@ impl RoutingService {
         token: &NodeToken,
         request: RouteRequest,
     ) -> Result<DispatchView, Error> {
+        self.store.validate_request_files(token, &request).await?;
         self.execute(token, Input::Submit(request)).await
     }
     /// Move only a provably unclaimed start away from an unavailable node.

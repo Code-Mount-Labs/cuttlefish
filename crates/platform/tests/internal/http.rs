@@ -496,3 +496,67 @@ async fn cookies_reject_invalid_bytes_and_https_sessions_are_secure() {
     }
     f.close().await;
 }
+
+#[tokio::test]
+async fn password_change_checks_origin_and_revokes_the_calling_cookie() {
+    let f = Fixture::new().await;
+    let token = f.account("owner").await;
+    let app = web::router(f.platform.clone());
+    let cookie = format!("cuttlefish_session={}", token.expose());
+    let body =
+        json!({"current_password":"test-password-123","new_password":"replacement-password"});
+    for headers in [
+        vec![],
+        vec![("cookie", cookie.as_str())],
+        vec![
+            ("cookie", cookie.as_str()),
+            ("origin", "https://attacker.test"),
+        ],
+    ] {
+        json_call(
+            &app,
+            "POST",
+            "/api/v1/auth/password",
+            &headers,
+            body.clone(),
+            StatusCode::UNAUTHORIZED,
+        )
+        .await;
+    }
+    let headers = [
+        ("cookie", cookie.as_str()),
+        ("origin", "http://127.0.0.1:8080"),
+    ];
+    json_call(
+        &app,
+        "POST",
+        "/api/v1/auth/password",
+        &headers,
+        json!({"current_password":"incorrect-password","new_password":"replacement-password"}),
+        StatusCode::UNAUTHORIZED,
+    )
+    .await;
+    let (status, headers, response) =
+        call(&app, "POST", "/api/v1/auth/password", &headers, body).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&response).expect("response"),
+        json!({"ok":true})
+    );
+    assert!(
+        headers["set-cookie"]
+            .to_str()
+            .expect("cookie")
+            .contains("Max-Age=0")
+    );
+    json_call(
+        &app,
+        "GET",
+        "/api/v1/auth/session",
+        &[("cookie", cookie.as_str())],
+        Value::Null,
+        StatusCode::UNAUTHORIZED,
+    )
+    .await;
+    f.close().await;
+}

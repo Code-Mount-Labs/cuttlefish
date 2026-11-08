@@ -66,10 +66,6 @@ async fn structured_model_response_is_bounded_and_only_selects_an_eligible_ident
             .await,
         Err(Error::NoCapacity)
     ));
-    assert!(matches!(
-        Unconfigured.choose(&context()).await,
-        Err(Error::Model)
-    ));
     server.close().await;
     assert!(matches!(
         selector.choose(&context()).await,
@@ -127,5 +123,27 @@ async fn structured_model_response_is_bounded_and_only_selects_an_eligible_ident
             Err(Error::Model)
         ));
         server.close().await;
+    }
+}
+
+#[tokio::test]
+async fn unconfigured_router_accepts_only_one_eligible_destination() {
+    assert_eq!(
+        Unconfigured
+            .choose(&context())
+            .await
+            .expect("single candidate"),
+        id(2)
+    );
+    for candidates in [vec![], vec![context().candidates[0].clone(); 2]] {
+        assert!(matches!(
+            Unconfigured
+                .choose(&RoutingContext {
+                    candidates,
+                    ..context()
+                })
+                .await,
+            Err(Error::Model)
+        ));
     }
 }

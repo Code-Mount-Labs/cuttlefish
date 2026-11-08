@@ -18,6 +18,7 @@
 //! let empty = MessageText(String::new());
 //! ```
 
+pub mod activity;
 pub mod agent;
 pub mod capabilities;
 pub mod collaboration;
@@ -31,3 +32,11 @@ pub mod values;
 
 /// Installation-scoped remote access and tunnel provisioning.
 pub mod remote;
+
+pub mod execution;
+
+pub mod attachments;
+
+pub mod tools;
+
+pub mod recovery;

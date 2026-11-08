@@ -284,3 +284,128 @@ async fn real_worker_errors_and_operator_stop_have_bounded_exits() {
     supervisor.stop().await;
     journal.close().await;
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn local_subscription_specialists_keep_sessions_across_supervisor_restart() {
+    use orchestrator_node::execution::ExecutionConfig;
+    use orchestrator_protocol::execution::{LocalProvider, ProviderWorkspace};
+    use std::os::unix::fs::PermissionsExt;
+    for provider in [LocalProvider::Codex, LocalProvider::Claude] {
+        let cleanup = Cleanup(tempfile::tempdir().expect("directory"));
+        let path = cleanup.0.path().canonicalize().expect("path");
+        let executable = path.join("provider");
+        std::fs::write(&executable, PROVIDER_FIXTURE).expect("fixture CLI");
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
+            .expect("executable");
+        let instructions = path.join("specialist.md");
+        std::fs::write(&instructions, "Do the assigned task.").expect("prompt");
+        let mut supervisor = Supervisor::start(&path).await;
+        let journal = Journal::attach(&path.join("node.sqlite"))
+            .await
+            .expect("journal");
+        journal
+            .configure_execution(&ExecutionConfig {
+                workspace: ProviderWorkspace {
+                    workspace_id: id(5),
+                    name: "Recovery fixture".into(),
+                    provider,
+                    allow_edits: true,
+                },
+                executable,
+                directory: path.clone(),
+                instructions,
+            })
+            .await
+            .expect("configure");
+        supervisor.submit(start()).await;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !path.join("entered").exists() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("provider active");
+        let original = journal
+            .session(id(4))
+            .await
+            .expect("session")
+            .expect("worker");
+        let binding = journal
+            .provider_binding(id(4))
+            .await
+            .expect("binding")
+            .expect("persisted before effects");
+        supervisor
+            .child
+            .kill()
+            .await
+            .expect("kill supervisor during task");
+        let mut replacement = Supervisor::start(&path).await;
+        assert_eq!(
+            journal
+                .session(id(4))
+                .await
+                .expect("session")
+                .expect("worker")
+                .pid,
+            original.pid
+        );
+        assert_eq!(
+            journal.provider_binding(id(4)).await.expect("binding"),
+            Some(binding.clone())
+        );
+        std::fs::write(path.join("release"), "").expect("release provider");
+        completed(&journal, 6).await;
+        replacement.submit(send(11)).await;
+        completed(&journal, 11).await;
+        assert_eq!(
+            journal.provider_binding(id(4)).await.expect("binding"),
+            Some(binding)
+        );
+        let invocations = std::fs::read_to_string(path.join("invocations")).expect("invocations");
+        assert_eq!(
+            invocations.lines().count(),
+            2,
+            "one provider invocation per turn"
+        );
+        match provider {
+            LocalProvider::Codex => assert!(
+                std::fs::read_to_string(path.join("requests"))
+                    .expect("requests")
+                    .contains("thread/resume")
+            ),
+            LocalProvider::Claude => {
+                assert!(invocations.contains("--resume 00000000-0000-0000-0000-000000000004"));
+            }
+        }
+        replacement.submit(cancel(12)).await;
+        completed(&journal, 12).await;
+        replacement.stop().await;
+        journal.close().await;
+    }
+}
+
+#[cfg(unix)]
+const PROVIDER_FIXTURE: &str = r#"#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> invocations
+if [ "$1" = app-server ]; then
+  read -r initialize
+  printf '%s\n' '{"id":1,"result":{}}'
+  read -r initialized
+  read -r thread
+  printf '%s\n' "$thread" >> requests
+  printf '%s\n' '{"id":2,"result":{"thread":{"id":"durable-codex-session"}}}'
+  read -r turn
+  printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+  touch entered
+  while [ ! -f release ]; do sleep 0.05; done
+  printf '%s\n' '{"method":"item/completed","params":{"threadId":"durable-codex-session","turnId":"turn-1","item":{"type":"agentMessage","text":"Verified task"}}}' '{"method":"turn/completed","params":{"threadId":"durable-codex-session","turn":{"id":"turn-1","status":"completed"}}}'
+else
+  cat >/dev/null
+  touch entered
+  while [ ! -f release ]; do sleep 0.05; done
+  printf '%s\n' '{"type":"result","session_id":"00000000-0000-0000-0000-000000000004","subtype":"success","is_error":false,"result":"Verified task"}'
+fi
+"#;

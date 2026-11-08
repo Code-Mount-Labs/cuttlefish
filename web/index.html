@@ -1,33 +1,14 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light"><title>Cuttlefish · Your agent workspace</title>
-  <link rel="icon" href="/logo.png"><link rel="stylesheet" href="/app.css"><script src="/app.js" defer></script>
-</head>
-<body>
-  <div id="notification" role="status" aria-live="polite" hidden></div>
-  <main id="auth" class="auth-layout" hidden>
-    <section class="auth-story"><a class="brand" href="/"><img src="/logo.png" alt=""><span>Cuttlefish</span></a><div><p class="eyebrow">MANY MACHINES. ONE TEAM.</p><h1>Give your agents<br>a place to work<br>together.</h1><p class="lede">From the laptop on your desk to the server in the cloud. One workspace for every member of your agent team.</p></div><p class="muted">Your infrastructure. Your models. Your control.</p></section>
-    <section class="auth-form"><div><span class="pill">YOUR WORKSPACE</span><h2 id="auth-title">Welcome back.</h2><p id="auth-description" class="muted">Sign in to manage your groups and machines.</p><form id="login-form">
-      <label>Username<input id="username" required minlength="3" maxlength="64" pattern="[a-z0-9_.-]+" autocomplete="username" placeholder="your.name"></label>
-      <label>Password<input id="password" type="password" required minlength="12" maxlength="1024" autocomplete="current-password" placeholder="At least 12 characters"></label>
-      <button type="submit" class="primary" id="sign-in">Sign in <span aria-hidden="true">↗</span></button>
-    </form><p class="form-note"><button type="button" id="auth-toggle" class="text-button">New here? Create an account</button></p></div></section>
-  </main>
-  <div id="workspace" class="workspace" hidden>
-    <aside class="sidebar"><a class="brand" href="/"><img src="/logo.png" alt=""><span>Cuttlefish</span></a><p class="eyebrow">WORKSPACE</p><nav aria-label="Main navigation"><button class="nav-item active" data-page="groups"><span aria-hidden="true">◈</span> Agent groups</button><button class="nav-item" data-page="guide"><span aria-hidden="true">↗</span> Installation guide</button></nav><div class="sidebar-footer"><span class="status-dot"></span> Cuttlefish platform<button id="logout" class="text-button">Sign out</button></div></aside>
-    <main class="main-panel"><header class="topbar"><span id="breadcrumb">Workspace / Agent groups</span><span class="topbar-tag">YOU'RE IN CONTROL</span></header>
-      <section id="page-groups" class="page"><div class="page-heading"><div><p class="eyebrow">YOUR DISTRIBUTED TEAM</p><h1>Agent groups</h1><p class="muted">Bring your machines together. Let your agents take it from there.</p></div><button id="new-group" class="primary">+ Create group</button></div>
-        <div class="overview"><article><span>Groups</span><strong id="group-count">—</strong></article><article><span>Connected agents</span><strong id="agent-count">—</strong></article><article><span>Online now</span><strong id="online-count">—</strong></article><div class="overview-note"><span class="orbit" aria-hidden="true">◎</span><p>Different machines.<br><strong>Shared direction.</strong></p></div></div>
-        <div class="section-label"><h2>All groups</h2><button id="refresh" class="text-button">↻ Refresh</button></div><div id="groups" class="group-grid"></div><div id="empty" class="empty" hidden><span class="empty-icon" aria-hidden="true">◈</span><h2>Your team starts here.</h2><p>Create a group, then connect your first agent.<br>One machine is all you need to get started.</p><button class="secondary" id="empty-create">Create your first group</button></div>
-        <section id="group-detail" class="detail" hidden><div class="section-label"><div><p class="eyebrow">SELECTED GROUP</p><h2 id="detail-name"></h2><button id="copy-group" class="identifier"></button></div><button id="add-machine" class="primary">+ Connect a machine</button></div><div id="machines" class="machine-list"></div></section>
-      </section>
-      <section id="page-guide" class="page" hidden><div class="page-heading"><div><p class="eyebrow">START SMALL. GROW WHEN YOU NEED.</p><h1>Your setup, your way.</h1><p class="muted">Start on one machine or connect a team across operating systems.</p></div></div><div class="guide-grid"><article class="surface"><span class="step">01</span><h2>Everything together</h2><p>Run the router, shared database and your first agent on one machine. A simple place to begin.</p><code>Router + agent (default)</code></article><article class="surface"><span class="step">02</span><h2>A dedicated router</h2><p>Keep the router on an always-on server. Connect agents wherever their capabilities are needed.</p><code>Router only</code></article><article class="surface"><span class="step">03</span><h2>Another pair of hands</h2><p>Connect an agent from a laptop, workstation or another server using a group invitation.</p><code>Agent only</code></article></div><div class="connection-note"><h2>One shared view. Local execution.</h2><p>Agents connect outbound to the router. The router keeps shared state in PostgreSQL; each machine keeps its own recovery journal. Your laptop does not need an open inbound port or database credentials.</p></div></section>
-    </main>
-  </div>
-  <dialog id="group-dialog"><form id="group-form"><button class="close" type="button" data-close="group-dialog" aria-label="Close">×</button><p class="eyebrow">A PLACE FOR YOUR TEAM</p><h2>Create a group</h2><p class="muted">Give your related agents a shared home.</p><label>Group name<input id="group-name" required maxlength="128" placeholder="e.g. Product team" autofocus></label><button class="primary" type="submit">Create group</button></form></dialog>
-  <dialog id="invite-dialog"><button class="close" type="button" data-close="invite-dialog" aria-label="Close">×</button><p class="eyebrow">GROW YOUR TEAM</p><h2>Connect a machine</h2><p>Run the installer on your machine, then enter this group ID and one-time code. Choose router + agent, router only, or agent only when a router is already ready.</p><label>Install on Linux or macOS<textarea id="install-command" readonly rows="4" spellcheck="false"></textarea></label><button id="copy-install" class="secondary">Copy install command</button><p class="form-note">Alpha release. Keep the terminal running during testing. Windows installation will follow.</p><label>Platform address<input id="invite-origin" readonly></label><label>Group ID<input id="invite-group" readonly></label><label>One-time enrollment code<input id="invite-code" readonly spellcheck="false"></label><button id="copy-invite" class="secondary">Copy enrollment code</button><p class="form-note">Valid for 30 minutes and one machine. Keep this code private; the group ID alone cannot enroll an agent.</p></dialog>
-  <div id="loading" class="loading"><img src="/logo.png" alt=""><p>Opening your workspace…</p></div>
-</body>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Cuttlefish · Workspace</title>
+    <script type="module" crossorigin src="./app.js"></script>
+    <link rel="stylesheet" crossorigin href="./app.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
 </html>

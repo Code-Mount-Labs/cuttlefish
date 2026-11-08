@@ -35,6 +35,29 @@ impl Passwords {
         }))
         .await?
     }
+    pub async fn replace(
+        &self,
+        input: Credentials,
+        current: String,
+        previous: String,
+        permit: OwnedSemaphorePermit,
+    ) -> Result<(String, String), Error> {
+        let hasher = self.hash_password;
+        (self.hash_worker)(Box::new(move || {
+            use argon2::password_hash::{PasswordVerifier, phc::PasswordHash};
+            let _permit = permit;
+            let valid = PasswordHash::new(&previous).is_ok_and(|hash| {
+                argon2::Argon2::default()
+                    .verify_password(current.as_bytes(), &hash)
+                    .is_ok()
+            });
+            if !valid {
+                return Err(Error::Unauthorized);
+            }
+            hasher(input.password.as_bytes()).map(|hash| (input.username, hash))
+        }))
+        .await?
+    }
     pub async fn verify(
         &self,
         password: String,

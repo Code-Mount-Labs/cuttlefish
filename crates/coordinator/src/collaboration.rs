@@ -241,7 +241,7 @@ async fn catalog(tx: &mut Tx<'_>, group: Uuid) -> Result<Vec<CapabilityRelease>,
     .await?;
     Ok(rows.into_iter().map(|r| r.0).collect())
 }
-async fn load(tx: &mut Tx<'_>, group: Uuid, id: GoalId) -> Result<GoalView, Error> {
+pub(crate) async fn load(tx: &mut Tx<'_>, group: Uuid, id: GoalId) -> Result<GoalView, Error> {
     let Json(mut view): Json<GoalView> =
         sqlx::query_scalar("SELECT snapshot FROM goals WHERE group_id=$1 AND goal_id=$2")
             .bind(group)
@@ -255,7 +255,7 @@ async fn load(tx: &mut Tx<'_>, group: Uuid, id: GoalId) -> Result<GoalView, Erro
     }
     Ok(view)
 }
-async fn save(tx: &mut Tx<'_>, group: Uuid, view: &GoalView) -> Result<(), Error> {
+pub(crate) async fn save(tx: &mut Tx<'_>, group: Uuid, view: &GoalView) -> Result<(), Error> {
     sqlx::query("UPDATE goals SET snapshot=$1 WHERE group_id=$2 AND goal_id=$3")
         .bind(Json(view))
         .bind(group)

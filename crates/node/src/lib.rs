@@ -1,6 +1,7 @@
 //! Durable local node runtime. Specialists communicate through a local `SQLite`
 //! journal and do not depend on a supervisor's pipes or process lifetime.
 
+pub mod activity;
 pub mod cli;
 pub mod journal;
 pub mod model;
@@ -52,3 +53,13 @@ extern crate self as orchestrator_node;
 #[cfg(test)]
 #[path = "../tests/common/mod.rs"]
 pub(crate) mod test_support;
+
+pub mod execution;
+pub mod local_provider;
+
+pub mod attachments;
+
+pub mod tool_server;
+pub mod tools;
+
+mod recovery;

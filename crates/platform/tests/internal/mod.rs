@@ -396,3 +396,5 @@ mod faults;
 
 mod addresses;
 pub(crate) mod relay;
+
+mod password_change;

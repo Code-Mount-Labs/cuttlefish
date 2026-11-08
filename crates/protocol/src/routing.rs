@@ -159,6 +159,9 @@ pub struct DispatchPoll {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DispatchBatch {
+    /// Explicit inspection or approved recovery on the original node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<crate::recovery::RecoveryJob>,
     /// Accepted IDs recorded by the server, in request order.
     pub acknowledged: Vec<CommandId>,
     /// Already marked claimed in `PostgreSQL` before transport begins.

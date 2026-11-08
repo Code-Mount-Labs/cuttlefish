@@ -10,14 +10,29 @@ use std::{
 pub enum Kind {
     /// Placement-only routing instructions.
     Router,
+    /// Inspect saved work before continuing an interrupted provider turn.
+    Recovery,
     /// Planning, delegation and learning instructions.
     Planner,
+    /// Instructions for locally authenticated specialist providers.
+    Specialist,
+    /// Discover registered peer capabilities.
+    CollaborationAgents,
+    /// Delegate scoped work to a peer.
+    CollaborationDelegate,
+    /// Inspect a delegated task.
+    CollaborationTask,
 }
 impl Kind {
     const fn path(self) -> &'static str {
         match self {
             Self::Router => "router/selection.md",
+            Self::Recovery => "execution/recovery.md",
             Self::Planner => "super-agent/planner.md",
+            Self::Specialist => "execution/specialist.md",
+            Self::CollaborationAgents => "collaboration/agents.md",
+            Self::CollaborationDelegate => "collaboration/delegate.md",
+            Self::CollaborationTask => "collaboration/task.md",
         }
     }
 }
@@ -31,8 +46,17 @@ impl Prompt {
     pub fn bundled(kind: Kind) -> Self {
         Self(
             match kind {
+                Kind::Recovery => include_str!("../../../prompts/execution/recovery.md"),
                 Kind::Router => include_str!("../../../prompts/router/selection.md"),
                 Kind::Planner => include_str!("../../../prompts/super-agent/planner.md"),
+                Kind::Specialist => include_str!("../../../prompts/execution/specialist.md"),
+                Kind::CollaborationAgents => {
+                    include_str!("../../../prompts/collaboration/agents.md")
+                }
+                Kind::CollaborationDelegate => {
+                    include_str!("../../../prompts/collaboration/delegate.md")
+                }
+                Kind::CollaborationTask => include_str!("../../../prompts/collaboration/task.md"),
             }
             .to_owned(),
         )
@@ -70,7 +94,15 @@ mod tests {
     #[test]
     fn defaults_and_overrides_are_bounded_and_exact() {
         let temp = tempfile::tempdir().expect("directory");
-        for kind in [Kind::Router, Kind::Planner] {
+        for kind in [
+            Kind::Router,
+            Kind::Recovery,
+            Kind::Planner,
+            Kind::Specialist,
+            Kind::CollaborationAgents,
+            Kind::CollaborationDelegate,
+            Kind::CollaborationTask,
+        ] {
             assert!(!Prompt::bundled(kind).as_str().is_empty());
             assert!(Prompt::load(temp.path(), kind).is_err());
             let path = temp.path().join(kind.path());

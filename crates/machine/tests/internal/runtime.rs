@@ -254,3 +254,150 @@ async fn listener_address_failure_does_not_start_background_services() {
     );
     machine.close().await;
 }
+
+#[tokio::test]
+async fn unavailable_provider_catalog_does_not_stop_node_heartbeats() {
+    use axum::{Json, Router, routing::post};
+    use orchestrator_protocol::{
+        routing::{DispatchBatch, DispatchPoll},
+        sync::{SyncRequest, SyncResponse},
+    };
+    let received = Arc::new(tokio::sync::Notify::new());
+    let observed = received.clone();
+    let app = Router::new()
+        .route(
+            "/api/node/enroll",
+            post(|| async { Json(serde_json::json!({})) }),
+        )
+        .route(
+            "/v1/sync",
+            post(move |Json(request): Json<SyncRequest>| {
+                let observed = observed.clone();
+                async move {
+                    observed.notify_one();
+                    Json(SyncResponse {
+                        version: request.version,
+                        acknowledged: request.events.iter().map(|e| e.sequence).collect(),
+                    })
+                }
+            }),
+        )
+        .route(
+            "/v1/dispatch/poll",
+            post(|Json(poll): Json<DispatchPoll>| async move {
+                Json(DispatchBatch {
+                    recovery: None,
+                    acknowledged: poll.accepted,
+                    command: None,
+                })
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener");
+    let origin = format!("http://{}", listener.local_addr().expect("address"));
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("serve");
+    });
+    let dir = tempfile::tempdir().expect("directory");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    initialize(&machine).await;
+    machine
+        .save_setting("router_origin", &origin)
+        .await
+        .expect("router");
+    let journal = machine.agent_journal().await.expect("journal");
+    let pool = sqlx::SqlitePool::connect(&format!("sqlite:{}", journal.path().display()))
+        .await
+        .expect("pool");
+    sqlx::query("ALTER TABLE workspace_providers RENAME COLUMN configuration TO broken")
+        .execute(&pool)
+        .await
+        .expect("fault");
+    pool.close().await;
+    journal.close().await;
+    let local = machine.clone();
+    let worker = tokio::spawn(async move {
+        run_agent(
+            &local,
+            std::env::current_exe().expect("executable"),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), received.notified())
+        .await
+        .expect("heartbeat despite catalog failure");
+    worker.abort();
+    let _ = worker.await;
+    server.abort();
+    machine.close().await;
+}
+
+#[tokio::test]
+async fn agent_only_installation_does_not_run_group_schedules() {
+    let dir = tempfile::tempdir().expect("dir");
+    let machine = Machine::open(dir.path(), Arc::new(crate::tests::Backend::default()))
+        .await
+        .expect("machine");
+    let mut registration = crate::tests::registration();
+    registration.role = orchestrator_protocol::installation::InstallationRole::Agent;
+    machine
+        .initialize(
+            &registration,
+            "http://127.0.0.1:8000",
+            "http://127.0.0.1:8080",
+        )
+        .await
+        .expect("initialize");
+    machine
+        .reconcile_automations()
+        .await
+        .expect("agent skips scheduling");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(25), schedule(machine.clone()))
+            .await
+            .is_err()
+    );
+    let app = crate::web::router(machine.clone());
+    let cookie = crate::tests::http::sign_in(&app, &machine).await;
+    for body in [
+        None,
+        Some(
+            serde_json::json!({"type":"run","workflow_id":uuid::Uuid::from_u128(1),"run_id":uuid::Uuid::from_u128(2)}),
+        ),
+    ] {
+        assert!(
+            !crate::tests::http::request(
+                &app,
+                "/api/local/automations",
+                body,
+                Some(&cookie),
+                Some("http://127.0.0.1:8080")
+            )
+            .await
+            .0
+            .is_success()
+        );
+    }
+    machine.close().await;
+}
+
+#[tokio::test]
+async fn missing_updater_does_not_stop_runtime_recovery() {
+    let dir = tempfile::tempdir().expect("directory");
+    let machine = Machine::open(dir.path(), Arc::new(Backend::default()))
+        .await
+        .expect("machine");
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(20),
+            recover_updates_with(machine.clone(), |_| Err(Error::Invalid("unavailable")))
+        )
+        .await
+        .is_err()
+    );
+    machine.close().await;
+}

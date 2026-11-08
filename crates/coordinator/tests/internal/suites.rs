@@ -15,7 +15,7 @@ mod delivery_faults;
 #[path = "../suites/http.rs"]
 mod http;
 #[path = "../suites/routing.rs"]
-mod routing;
+pub(crate) mod routing;
 #[path = "../suites/routing_faults.rs"]
 mod routing_faults;
 #[path = "../suites/selector.rs"]
@@ -32,3 +32,24 @@ mod collaboration_storage;
 
 #[path = "../suites/super_agent_faults.rs"]
 mod super_agent_faults;
+
+#[path = "../suites/chat.rs"]
+mod chat;
+
+#[path = "../suites/attachments.rs"]
+mod attachments;
+
+#[path = "../suites/activity.rs"]
+mod activity;
+
+#[path = "../suites/automations.rs"]
+mod automations;
+
+#[path = "../suites/routines.rs"]
+mod routines;
+
+#[path = "../suites/agent_tools.rs"]
+pub(crate) mod agent_tools;
+
+#[path = "../suites/recovery.rs"]
+mod recovery;

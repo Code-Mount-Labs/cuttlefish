@@ -178,6 +178,7 @@ impl Agent for FakeAgent {
             return Err(AgentError::InjectedFailure);
         }
         let event = AgentEvent {
+            artifacts: Vec::new(),
             version: command.version,
             command_id: command.command_id,
             group_id: command.group_id,

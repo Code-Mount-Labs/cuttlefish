@@ -290,7 +290,7 @@ async fn routing_uses_persisted_model_and_editable_prompts_and_rejects_corrupt_s
         .await
         .expect("machine");
     initialize(&machine).await;
-    let context = RoutingContext {
+    let mut context = RoutingContext {
         active_work: vec![],
         recent_activity: vec![],
         request: RouteRequest {
@@ -308,6 +308,16 @@ async fn routing_uses_persisted_model_and_editable_prompts_and_rejects_corrupt_s
             available_slots: 1,
         }],
     };
+    assert_eq!(
+        machine
+            .choose(&context)
+            .await
+            .expect("single candidate needs no model"),
+        context.candidates[0].node_id
+    );
+    let mut second = context.candidates[0].clone();
+    second.node_id = Uuid::from_u128(4).try_into().expect("id");
+    context.candidates.push(second);
     assert!(machine.choose(&context).await.is_err());
     machine
         .save_setting("model", "not JSON")

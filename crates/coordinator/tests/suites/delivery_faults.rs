@@ -37,6 +37,7 @@ async fn delivery_retries_do_not_spawn_twice_and_invalid_responses_keep_receipts
         "/v1/dispatch/poll",
         post(|Json(poll): Json<DispatchPoll>| async move {
             Json(DispatchBatch {
+                recovery: None,
                 acknowledged: poll.accepted,
                 command: Some(data::report().events[0].command.clone()),
             })
@@ -119,6 +120,7 @@ async fn acceptance_and_acknowledgment_storage_failures_are_recoverable() {
             "/v1/dispatch/poll",
             post(|Json(poll): Json<DispatchPoll>| async move {
                 Json(DispatchBatch {
+                    recovery: None,
                     acknowledged: poll.accepted,
                     command: Some(data::report().events[0].command.clone()),
                 })
@@ -203,6 +205,7 @@ async fn execution_loop_retries_and_shutdown_preserves_workers() {
                             StatusCode::SERVICE_UNAVAILABLE.into_response()
                         } else {
                             Json(DispatchBatch {
+                                recovery: None,
                                 acknowledged: poll.accepted,
                                 command: Some(data::report().events[0].command.clone()),
                             })
@@ -307,4 +310,58 @@ async fn truncated_delivery_and_model_responses_fail_closed() {
         }
         server.await.expect("join");
     }
+}
+
+#[tokio::test]
+async fn failed_input_staging_and_report_reads_do_not_accept_or_acknowledge_work() {
+    let (_temp, mut node, launcher) = runtime().await;
+    let server = Server::start(Router::new().route(
+        "/v1/dispatch/poll",
+        post(|Json(poll): Json<DispatchPoll>| async move {
+            let mut command = data::report().events[0].command.clone();
+            if let orchestrator_protocol::agent::AgentAction::Start { message, .. } =
+                &mut command.action
+            {
+                message
+                    .attachments
+                    .push(orchestrator_protocol::attachments::Attachment {
+                        id: orchestrator_protocol::ids::AttachmentId::random(),
+                        workspace_id: id(5),
+                        name: "missing.txt".into(),
+                        media_type: "text/plain".into(),
+                        size: 0,
+                        sha256: "a".repeat(64),
+                    });
+            }
+            Json(DispatchBatch {
+                recovery: None,
+                acknowledged: poll.accepted,
+                command: Some(command),
+            })
+        }),
+    ))
+    .await;
+    let remote = Remote::new(&server.origin, &data::token()).expect("remote");
+    assert!(remote.dispatch(&mut node).await.is_err());
+    assert!(launcher.launches.lock().expect("launches").is_empty());
+    let pool = raw(&node).await;
+    sqlx::query("ALTER TABLE local_sessions RENAME COLUMN state TO missing_state")
+        .execute(&pool)
+        .await
+        .expect("fault");
+    assert!(
+        node.journal()
+            .sync_report(data::report().profile.clone())
+            .await
+            .is_err()
+    );
+    assert!(
+        remote
+            .synchronize(node.journal(), &data::report().profile)
+            .await
+            .is_err()
+    );
+    pool.close().await;
+    node.journal().close().await;
+    server.close().await;
 }

@@ -7,7 +7,7 @@ registered router; agent-only enrollment requires that router to be ready.
 ## Install a release
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.2/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Code-Mount-Labs/cuttlefish/v0.2.0-alpha.9/install.sh | sh
 ```
 
 Linux and macOS releases include ARM64 and x86-64 binaries. Windows installation
@@ -37,9 +37,149 @@ state directory and listener settings.
 
 The shell bootstrap downloads versioned, checksum-verified release archives.
 Windows scripts remain experimental and are not a supported installation path.
-The main Cuttlefish process runs in the foreground; automatic startup for that
-process is not yet implemented. The managed relay connector has its own native
-OS service and survives supervisor restart.
+On macOS, setup installs the login service and opens the dashboard by default.
+Use `setup --foreground` to keep it in the terminal. Linux systemd support,
+implemented for the next release, also starts in the background by default.
+The managed relay connector has its
+own native OS service and survives supervisor restart.
+
+## macOS background startup
+
+New Mac installations enable this automatically. For an older or foreground
+installation, stop its foreground process with Ctrl+C, then install the service
+as your normal macOS account (do not use sudo):
+
+```sh
+"$HOME/.local/share/cuttlefish/bin/cuttlefish" --state-dir "$HOME/.cuttlefish" service install --listen 127.0.0.1:8080
+```
+
+This starts the existing installation now and after you log in to your Mac.
+You can close the terminal. It uses the same state directory, database, provider
+sign-ins, and managed address. It does not run before login, while logged out,
+or while the Mac is asleep. A router that must always be available belongs on
+an always-on machine.
+
+```sh
+# Check the service and dashboard
+"$HOME/.local/share/cuttlefish/bin/cuttlefish" --state-dir "$HOME/.cuttlefish" service status
+
+# Restart after updating the application binaries
+"$HOME/.local/share/cuttlefish/bin/cuttlefish" --state-dir "$HOME/.cuttlefish" service restart
+
+# Stop now and disable login startup until service start is run
+"$HOME/.local/share/cuttlefish/bin/cuttlefish" --state-dir "$HOME/.cuttlefish" service stop
+
+# Start and re-enable login startup
+"$HOME/.local/share/cuttlefish/bin/cuttlefish" --state-dir "$HOME/.cuttlefish" service start
+
+# Remove this startup definition, preserving all application data
+"$HOME/.local/share/cuttlefish/bin/cuttlefish" --state-dir "$HOME/.cuttlefish" service uninstall
+```
+
+Each canonical state directory gets a distinct LaunchAgent in
+`~/Library/LaunchAgents/com.cuttlefish.app.<state-hash>.plist`. Startup commands
+use the listener saved at installation, including custom ports. To change it,
+run `service install --listen <address>` again. The installer refuses to take
+over a port already occupied by a foreground or unrelated process.
+
+Logs are private files in `<state-dir>/service/stdout.log` and `stderr.log`.
+The service preserves the installing account's `HOME`, `PATH`, and configured
+`CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `DOCKER_CONFIG`, and `XDG_CONFIG_HOME` paths.
+It does not copy arbitrary environment variables or API keys into its definition.
+Configure model keys through the local dashboard. Changing provider/config paths
+later requires running `service install` again from the intended environment.
+Managed PostgreSQL recovery uses the existing Docker startup path; Docker
+Desktop may still require its own first-run authorization.
+
+The service retries crash recovery through launchd. Removing it does not remove
+PostgreSQL, the relay connector, provider installations, journals, or workspaces.
+Existing specialist processes retain their independent lifetime across a
+supervisor restart.
+
+## Linux background startup (next release)
+
+Linux installations with systemd and GNU coreutils use the same `service install`, `status`,
+`restart`, `stop`, `start`, and `uninstall` commands shown above. Alpha.9 does
+not include this support; build the current source or wait for the next release.
+For an existing installation, stop the foreground process with Ctrl+C, then run
+as the account that owns the installation:
+
+```sh
+cuttlefish service install --listen 127.0.0.1:8080
+cuttlefish service status
+cuttlefish update
+```
+
+Use `--state-dir <directory>` for a nondefault installation. Do not change users
+or add `sudo` when updating a user-owned installation: the same account, home,
+state, and provider sign-ins must be retained.
+
+A regular account gets a `systemctl --user` service. Installation enables user
+lingering so the service starts on boot and remains running after logout. If
+system policy requires administrator authorization, installation prints the
+exact `sudo loginctl enable-linger <uid>` command; run it and retry. The user
+systemd manager must be available in the login session. Containers and Linux
+systems without systemd can use `setup --foreground` and their own supervisor.
+A root-owned installation instead gets a system service. Cuttlefish never
+silently changes the installation owner or enables a root service for a regular
+account.
+
+Each canonical state directory has its own unit:
+`<state-dir>/service/cuttlefish-<state-hash>.service`. It is linked into the
+appropriate systemd manager. It preserves the saved listener, account home,
+provider paths, and Docker connection environment. Environment values are
+escaped; model keys belong in the local dashboard. The unit and state directory
+are private to the installation owner. Stop disables automatic startup; start
+reenables it. Uninstall removes only that unit, and deliberately leaves the
+account-wide lingering setting unchanged because other applications may use it.
+
+For logs, use the exact unit name in that directory:
+
+```sh
+journalctl --user -u cuttlefish-<state-hash>.service -f
+```
+
+For root-owned installations omit `--user`. Service status checks both the
+process and the local dashboard; startup refuses an already occupied port.
+Crash recovery restarts the supervisor. As on macOS, independently journaled
+specialists and the detached updater survive supervisor restarts. The unit
+therefore uses `KillMode=process` and `KillSignal=SIGINT`; stopping or uninstalling
+the supervisor is **not** a command to cancel running specialist tasks. A full
+OS reboot stops processes; task recovery then inspects their durable journals.
+The home and installation disks must be available at boot.
+
+## Passwords
+
+The hosted website account and each installation's administrator account are
+independent. On an installation dashboard, open **Settings → Password**. On the
+hosted website, open **Account → Password**. Enter the current password, a new
+password, and its confirmation. Passwords must contain 12–1024 UTF-8 bytes; the
+same policy applies to initial setup and sign-in.
+
+A successful change signs that account out on all devices, including the current
+browser. Sign in again with the new password. Changing one account does not
+change another installation's password, provider sign-ins, database credentials,
+or model keys. It does not cancel running agent tasks.
+
+The server verifies the current password and stores a fresh Argon2 hash.
+Replacement and session revocation commit atomically; failed writes preserve the
+previous password and sessions. Concurrent changes using the old password cannot
+both succeed, and a sign-in that started with the old password cannot create a
+surviving session after the change. The replacement and revocations survive a
+restart. This is a signed-in password change, not a forgotten-password reset.
+
+Both endpoints accept JSON `current_password` and `new_password`, return
+`{"ok":true}`, and expire the session cookie:
+
+| Account | Endpoint |
+| --- | --- |
+| Installation administrator | `POST /api/local/password` |
+| Hosted website | `POST /api/v1/auth/password` |
+
+Browser requests require the authenticated session and matching Origin. Use the
+installation endpoint through its own dashboard or managed relay prefix; the
+hosted endpoint belongs to the website. Never send an installation password to
+the hosted account endpoint.
 
 ## Database choices
 
@@ -87,6 +227,52 @@ and the PostgreSQL volume securely. Automated backup, restore, secret rotation,
 primary migration, and read-replica management are not part of this increment.
 No Redis service is required.
 
+## Updates without a terminal
+
+Open **Settings → Updates**, check for a release, then choose **Update and
+restart**. The page shows download, verification, restart, and completion. It
+reconnects to the same installation, including through the managed relay. A
+reload button appears after success; the app never reloads an unsaved form
+without the user's action. The same page can restart the service without an
+update. Only a signed-in local administrator can perform these actions.
+
+For terminal use, a default installation adds the command to `~/.local/bin`:
+
+```sh
+cuttlefish update --check
+cuttlefish update
+cuttlefish service restart
+```
+
+Open a new terminal after first installation to load the command path. Custom
+installation paths can invoke `<install-dir>/bin/cuttlefish` directly. Supply
+`--state-dir <directory>` when updating a nondefault installation.
+
+The new bootstrap must be run once on older releases to enable managed updates.
+Application releases live in `<install-dir>/releases`; the `current` symlink
+selects one complete release, and stable `bin` entry points follow it. Downloads
+come only from the official Cuttlefish GitHub repository. The installer verifies
+SHA-256, rejects archive links and traversal, stages all binaries, and then
+atomically switches the active release. Previous binaries remain available.
+This verifies integrity against the published checksum, not a separate release
+signing authority.
+
+An independent helper records progress in `<state-dir>/updates/status.json` and
+holds an OS lock to avoid duplicate work. Restarting the supervisor resumes an
+interrupted operation. An already installed release is not downloaded again
+when only the service restart needs retrying. Failed operations remain visible
+and can be retried explicitly. The helper checks the restarted service's version
+before reporting completion. Foreground installations report that a manual
+restart is required. Automatic service restart supports macOS and, starting
+with the next release, Linux with systemd.
+
+Updates do not replace the SQLite journals, PostgreSQL data or volume, workspace
+files, edited prompts, account settings, or provider credentials. Existing schema
+migrations apply normally when the new process starts. Older binaries are not
+restarted automatically after a migration failure: restoring application files
+alone cannot safely reverse a database migration. Back up persistent state and
+databases as usual.
+
 ## Local JSON API
 
 Browser mutations require the exact configured Origin and an authenticated local
@@ -96,10 +282,13 @@ login reservations survive restart. JSON inputs have a 16 KiB limit.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/local/status` | Whether a local administrator exists |
+| GET | `/api/local/status` | Whether a local administrator exists and the running version |
+| GET | `/api/local/updates` | Installed/available version and durable update progress |
+| POST | `/api/local/updates` | `check`, `install` with exact `version`, `retry`, or `restart`; 202 |
 | POST | `/api/local/setup` | One-time code, username, password |
 | POST | `/api/local/login` | Local administrator login |
 | POST | `/api/local/logout` | Revoke the current session |
+| POST | `/api/local/password` | Verify current password, replace it, and revoke all local sessions |
 | GET | `/api/local/config` | Identity, safe database status, model name/endpoint |
 | POST | `/api/local/database` | Queue `managed`, `existing`, or `later` selection; 202 |
 | POST | `/api/local/database/retry` | Queue the exact saved failed plan; 202 |
@@ -119,6 +308,7 @@ or missing instructions fail closed rather than silently reverting to defaults.
 ## Validation
 
 Tests cover deferred setup, persisted administrator sessions and rate limits,
+password changes, atomic session revocation, concurrent sign-in/change races,
 interrupted provisioning, immutable resource identity, ownership conflicts,
 Docker reuse/installation boundaries, bounded subprocess output, group enrollment,
 revocation, separate registry/execution schemas, and whole-service restart.
@@ -143,3 +333,16 @@ are exercised in both root and rootless modes. An optional third argument accept
 a release archive and also exercises the bootstrap and complete local setup flow.
 `tests/install/release-smoke.py` uses a local directory fixture while exercising
 real authentication, provisioning, agent enrollment, and supervisor restarts.
+
+Linux service contracts run with isolated command doubles. The real-systemd
+test `tests/install/service-linux-live.py` exercises a uniquely named service,
+crash recovery, specialist survival, saved data, port conflicts, and uninstallation.
+Use its `--leave-for-reboot` option only in a disposable VM, then run it with
+`--after-reboot` after rebooting that VM. Both user and root scopes are tested.
+
+`tests/install/service-linux-update.py <binary-directory> <empty-test-directory>`
+checks background setup and authenticated dashboard/CLI updates under actual
+systemd, including abrupt supervisor recovery with the same durable update ID.
+It uses local release-download and group-directory fixtures, and verifies real
+archive validation, activation, saved login, identity, work and provider markers.
+The Linux CI job runs both systemd tests in its disposable runner.

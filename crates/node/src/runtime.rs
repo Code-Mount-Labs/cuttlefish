@@ -19,7 +19,7 @@ pub struct NodeRuntime<L: Launcher> {
     journal: Journal,
     launcher: L,
     children: BTreeMap<SessionId, (String, L::Process)>,
-    _owner_lock: File,
+    owner_lock: File,
 }
 
 impl<L: Launcher> NodeRuntime<L> {
@@ -46,7 +46,7 @@ impl<L: Launcher> NodeRuntime<L> {
             journal,
             launcher,
             children: BTreeMap::new(),
-            _owner_lock: owner_lock,
+            owner_lock,
         })
     }
 
@@ -93,15 +93,54 @@ impl<L: Launcher> NodeRuntime<L> {
         let mut exited = Vec::new();
         for (id, (instance, child)) in &mut self.children {
             if let Some(success) = child.try_wait()? {
-                exited.push((*id, instance.clone(), success));
+                exited.push((*id, instance.clone(), success, child.pid()));
             }
         }
-        for (id, instance, success) in exited {
+        for (id, instance, success, pid) in exited {
+            // A replayed launch can lose registration to an existing worker after
+            // supervisor restart. Its exit must not interrupt the registered owner.
+            if let Some(pid) = pid
+                && self
+                    .journal
+                    .session(id)
+                    .await?
+                    .is_some_and(|s| s.pid.is_some_and(|owner| owner != i64::from(pid)))
+            {
+                self.children.remove(&id);
+                continue;
+            }
             self.journal
                 .interrupted(id, &instance, &format!("worker exited (success={success})"))
                 .await?;
             self.children.remove(&id);
         }
         self.journal.expire(30_000).await
+    }
+}
+
+impl<L: Launcher> Drop for NodeRuntime<L> {
+    fn drop(&mut self) {
+        // Explicitly release ownership before closing: a concurrent fork may briefly
+        // inherit the descriptor until exec, and must not delay a clean restart.
+        let _ = self.owner_lock.unlock();
+    }
+}
+
+impl<L: Launcher> NodeRuntime<L> {
+    pub(crate) fn launch_recovery(
+        &mut self,
+        spec: crate::model::LaunchSpec,
+    ) -> Result<(), NodeError> {
+        if self
+            .children
+            .get(&spec.command.target.session_id)
+            .is_some_and(|(instance, _)| instance == &spec.instance_id)
+        {
+            return Ok(());
+        }
+        let child = self.launcher.spawn(self.journal.path(), &spec)?;
+        self.children
+            .insert(spec.command.target.session_id, (spec.instance_id, child));
+        Ok(())
     }
 }

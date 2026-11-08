@@ -19,6 +19,20 @@ impl std::fmt::Debug for Credentials {
         f.write_str("Credentials([redacted])")
     }
 }
+/// Authenticated password replacement. Secret values are never formatted.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PasswordChange {
+    /// Existing password, verified before any replacement.
+    pub current_password: String,
+    /// New password using the same policy as account creation.
+    pub new_password: String,
+}
+impl std::fmt::Debug for PasswordChange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PasswordChange([redacted])")
+    }
+}
 impl Machine {
     /// Whether the local administrator has completed first-time setup.
     ///
@@ -93,18 +107,23 @@ impl Machine {
         let row:Option<(String,String)>=sqlx::query_as("UPDATE local_admin SET failed_logins=CASE WHEN login_window<unixepoch()-60 THEN 1 ELSE failed_logins+1 END,login_window=CASE WHEN login_window<unixepoch()-60 THEN unixepoch() ELSE login_window END WHERE failed_logins<5 OR login_window<unixepoch()-60 RETURNING username,password_hash").fetch_optional(&self.pool).await?;
         let (username, hash) = row.ok_or(Error::Unauthorized)?;
         let username_matches = input.username == username;
-        let valid = self.passwords.verify(input.password, hash, permit).await?;
+        let valid = self
+            .passwords
+            .verify(input.password, hash.clone(), permit)
+            .await?;
         if !valid || !username_matches {
             return Err(Error::Unauthorized);
         }
-        self.issue_login_session().await
+        self.issue_login_session(&hash).await
     }
-    async fn issue_login_session(&self) -> Result<String, Error> {
+    async fn issue_login_session(&self, verified_hash: &str) -> Result<String, Error> {
         let token = random_token();
         let mut tx = self.pool.begin().await?;
-        sqlx::query("UPDATE local_admin SET failed_logins=0,login_window=unixepoch()")
-            .execute(&mut *tx)
-            .await?;
+        let matched = sqlx::query("UPDATE local_admin SET failed_logins=0,login_window=unixepoch() WHERE password_hash=?1")
+            .bind(verified_hash).execute(&mut *tx).await?.rows_affected();
+        if matched != 1 {
+            return Err(Error::Unauthorized);
+        }
         sqlx::query("DELETE FROM local_sessions WHERE expires_at<=unixepoch()")
             .execute(&mut *tx)
             .await?;
@@ -116,6 +135,48 @@ impl Machine {
         .await?;
         tx.commit().await?;
         Ok(token)
+    }
+    /// Change the password and revoke all local administrator sessions atomically.
+    /// # Errors
+    /// Rejects invalid credentials, stale sessions, concurrent changes and storage failures.
+    pub async fn change_password(
+        &self,
+        token: &NodeToken,
+        input: PasswordChange,
+    ) -> Result<(), Error> {
+        validate_password(&input.current_password)?;
+        validate_password(&input.new_password)?;
+        let permit = self
+            .password_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Error::Limited)?;
+        let row: Option<(String,String)> = sqlx::query_as("UPDATE local_admin SET failed_logins=CASE WHEN login_window<unixepoch()-60 THEN 1 ELSE failed_logins+1 END,login_window=CASE WHEN login_window<unixepoch()-60 THEN unixepoch() ELSE login_window END WHERE (failed_logins<5 OR login_window<unixepoch()-60) AND EXISTS(SELECT 1 FROM local_sessions WHERE token_hash=?1 AND expires_at>unixepoch()) RETURNING username,password_hash")
+            .bind(digest(token.expose())).fetch_optional(&self.pool).await?;
+        let (username, previous) = row.ok_or(Error::Unauthorized)?;
+        let (_, replacement) = self
+            .passwords
+            .replace(
+                Credentials {
+                    username,
+                    password: input.new_password,
+                },
+                input.current_password,
+                previous.clone(),
+                permit,
+            )
+            .await?;
+        let mut tx = self.pool.begin().await?;
+        let matched = sqlx::query("UPDATE local_admin SET password_hash=?1,failed_logins=0,login_window=unixepoch() WHERE password_hash=?2 AND EXISTS(SELECT 1 FROM local_sessions WHERE token_hash=?3 AND expires_at>unixepoch())")
+            .bind(replacement).bind(previous).bind(digest(token.expose())).execute(&mut *tx).await?.rows_affected();
+        if matched != 1 {
+            return Err(Error::Unauthorized);
+        }
+        sqlx::query("DELETE FROM local_sessions")
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
     }
     /// Authenticate an unexpired local session.
     ///
@@ -146,11 +207,16 @@ fn validate(input: &Credentials) -> Result<(), Error> {
             .username
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_.-".contains(&b))
-        || !(12..=1024).contains(&input.password.len())
     {
         return Err(Error::Invalid(
             "use a lowercase username (3–64 characters) and a password of 12–1024 bytes",
         ));
+    }
+    validate_password(&input.password)
+}
+fn validate_password(password: &str) -> Result<(), Error> {
+    if !(12..=1024).contains(&password.len()) {
+        return Err(Error::Invalid("password must contain 12–1024 bytes"));
     }
     Ok(())
 }

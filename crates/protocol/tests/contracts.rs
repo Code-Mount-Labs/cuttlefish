@@ -262,6 +262,7 @@ fn start_command() -> AgentCommand {
         action: AgentAction::Start {
             workspace_id: id(6),
             message: Message {
+                attachments: Vec::new(),
                 id: id(7),
                 text: "hello".to_owned().try_into().expect("valid text"),
             },
@@ -298,6 +299,7 @@ fn start_command_matches_the_published_wire_shape() {
 fn all_commands_and_events_round_trip() {
     let mut command = start_command();
     let message = Message {
+        attachments: Vec::new(),
         id: id(8),
         text: "follow up".to_owned().try_into().expect("text"),
     };
@@ -319,6 +321,7 @@ fn all_commands_and_events_round_trip() {
         AgentEventKind::Cancelled,
     ] {
         let event = AgentEvent {
+            artifacts: Vec::new(),
             version: command.version,
             command_id: command.command_id,
             group_id: command.group_id,

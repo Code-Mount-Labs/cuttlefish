@@ -103,3 +103,53 @@ impl InstallationId {
         Self(Uuid::new_v4())
     }
 }
+
+resource_id!(
+    AttachmentId,
+    "An immutable uploaded or generated file identity."
+);
+
+impl AttachmentId {
+    /// Generate an immutable file identity without a fallible parsing round trip.
+    #[must_use]
+    pub fn random() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+/// Correlated identities for a single delegated child, derived from its durable operation.
+#[derive(Debug, Clone, Copy)]
+pub struct DelegationIds {
+    /// Task visible in the parent's goal.
+    pub task: TaskId,
+    /// Independent child specialist session.
+    pub session: SessionId,
+    /// Child conversation.
+    pub thread: ThreadId,
+    /// Initial child input.
+    pub message: MessageId,
+}
+impl CommandId {
+    /// Generate a non-nil command identity before persisting an operation.
+    #[must_use]
+    pub fn random() -> Self {
+        Self(Uuid::new_v4())
+    }
+    /// Derive a child's independent identities without fallible reparsing.
+    #[must_use]
+    pub const fn delegation(self) -> DelegationIds {
+        DelegationIds {
+            task: TaskId(self.0),
+            session: SessionId(self.0),
+            thread: ThreadId(self.0),
+            message: MessageId(self.0),
+        }
+    }
+}
+impl ThreadId {
+    /// Stable identity of the automatic collaboration goal for this conversation.
+    #[must_use]
+    pub const fn collaboration_goal(self) -> GoalId {
+        GoalId(self.0)
+    }
+}

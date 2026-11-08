@@ -29,15 +29,24 @@ pub fn router(store: Store) -> Router {
 pub fn router_with_selector(store: Store, selector: Arc<dyn Selector>) -> Router {
     let routing = Router::new()
         .route("/v1/tasks", post(submit))
+        .route("/v1/agent-tools", post(agent_tool))
         .route("/v1/threads/{thread}/failover", post(failover))
         .merge(crate::collaboration_web::routing_router())
         .with_state(RoutingService::new(store.clone(), selector));
     Router::new()
         .route("/v1/sync", post(sync))
+        .route("/v1/activity", post(record_activity))
         .route("/v1/nodes", get(nodes))
+        .route(
+            "/v1/attachments",
+            post(upload_attachment).layer(DefaultBodyLimit::max(300_000)),
+        )
+        .route("/v1/attachments/{id}/chunks/{index}", get(attachment_chunk))
+        .route("/v1/workspaces", get(workspaces).post(advertise_workspaces))
         .route("/v1/events", get(events))
         .route("/v1/threads/{thread}", get(thread))
         .route("/v1/dispatch/poll", post(poll))
+        .route("/v1/recovery/report", post(recovery_report))
         .merge(crate::collaboration_web::store_router())
         .with_state(store)
         .merge(routing)
@@ -68,14 +77,24 @@ async fn thread(
     Ok(Json(store.thread(&token(&headers)?, thread).await?))
 }
 
+#[derive(Deserialize)]
+struct PollFeatures {
+    #[serde(default)]
+    recovery: bool,
+}
+
 async fn poll(
     State(store): State<Store>,
+    Query(features): Query<PollFeatures>,
     headers: HeaderMap,
     Json(request): Json<DispatchPoll>,
 ) -> Result<Json<DispatchBatch>, Error> {
-    Ok(Json(
-        store.poll_dispatch(&token(&headers)?, &request).await?,
-    ))
+    let token = token(&headers)?;
+    let mut batch = store.poll_dispatch(&token, &request).await?;
+    if features.recovery {
+        batch.recovery = store.recovery_job(&token).await?;
+    }
+    Ok(Json(batch))
 }
 
 pub(crate) fn token(headers: &HeaderMap) -> Result<NodeToken, Error> {
@@ -146,4 +165,65 @@ impl IntoResponse for Error {
         };
         (status, Json(serde_json::json!({"error":message}))).into_response()
     }
+}
+
+async fn workspaces(
+    State(store): State<Store>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<serde_json::Value>>, Error> {
+    Ok(Json(store.provider_workspaces(&token(&headers)?).await?))
+}
+async fn advertise_workspaces(
+    State(store): State<Store>,
+    headers: HeaderMap,
+    Json(items): Json<Vec<orchestrator_protocol::execution::ProviderWorkspace>>,
+) -> Result<Json<serde_json::Value>, Error> {
+    store
+        .advertise_workspaces(&token(&headers)?, &items)
+        .await?;
+    Ok(Json(serde_json::json!({"ok":true})))
+}
+
+async fn upload_attachment(
+    State(store): State<Store>,
+    headers: HeaderMap,
+    Json(chunk): Json<orchestrator_protocol::attachments::AttachmentChunk>,
+) -> Result<Json<serde_json::Value>, Error> {
+    let ready = store.put_attachment(&token(&headers)?, &chunk).await?;
+    Ok(Json(serde_json::json!({"ready":ready})))
+}
+async fn attachment_chunk(
+    State(store): State<Store>,
+    headers: HeaderMap,
+    Path((id, index)): Path<(orchestrator_protocol::ids::AttachmentId, u32)>,
+) -> Result<Json<orchestrator_protocol::attachments::AttachmentChunk>, Error> {
+    Ok(Json(
+        store.attachment_chunk(&token(&headers)?, id, index).await?,
+    ))
+}
+
+async fn record_activity(
+    State(store): State<Store>,
+    headers: HeaderMap,
+    Json(events): Json<Vec<orchestrator_protocol::activity::ExecutionActivity>>,
+) -> Result<Json<Vec<i64>>, Error> {
+    Ok(Json(
+        store.record_activity(&token(&headers)?, &events).await?,
+    ))
+}
+
+async fn agent_tool(
+    State(service): State<RoutingService>,
+    headers: HeaderMap,
+    Json(request): Json<orchestrator_protocol::tools::ToolRequest>,
+) -> Result<Json<serde_json::Value>, Error> {
+    Ok(Json(service.agent_tool(&token(&headers)?, &request).await?))
+}
+
+async fn recovery_report(
+    State(store): State<Store>,
+    headers: HeaderMap,
+    Json(view): Json<orchestrator_protocol::recovery::RecoveryView>,
+) -> Result<Json<orchestrator_protocol::ids::CommandId>, Error> {
+    Ok(Json(store.recovery_report(&token(&headers)?, &view).await?))
 }

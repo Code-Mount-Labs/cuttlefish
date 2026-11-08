@@ -29,6 +29,7 @@ impl Remote {
             "{}/v1/dispatch/poll",
             self.endpoint.path().trim_end_matches("/v1/sync")
         ));
+        endpoint.set_query(Some("recovery=true"));
         let mut response = self
             .client
             .post(endpoint)
@@ -57,7 +58,21 @@ impl Remote {
             .journal()
             .acknowledge_dispatch(&poll.accepted)
             .await?;
+        if let Some(job) = batch.recovery {
+            let view = runtime.recover(&job).await?;
+            let reply = self
+                .exchange(
+                    "/v1/recovery/report",
+                    reqwest::Method::POST,
+                    Some(serde_json::json!(view)),
+                )
+                .await?;
+            if reply != serde_json::json!(view.id) {
+                return Err(NodeError::Rejected("recovery acknowledgment mismatch"));
+            }
+        }
         if let Some(command) = batch.command {
+            self.download_inputs(runtime.journal(), &command).await?;
             runtime.submit(&command).await?;
             runtime
                 .journal()
@@ -104,7 +119,8 @@ impl Remote {
     ) -> Result<(), NodeError> {
         runtime.tick().await?;
         self.synchronize(runtime.journal(), profile).await?;
-        self.dispatch(runtime).await
+        self.dispatch(runtime).await?;
+        self.flush_tools(runtime.journal()).await
     }
     /// Keep presence and results synchronized, retrying failures every five seconds.
     /// Shutdown cancels only synchronization; specialists continue independently.
@@ -172,6 +188,8 @@ impl Remote {
         journal: &Journal,
         profile: &NodeProfile,
     ) -> Result<usize, NodeError> {
+        self.upload_activity(journal).await?;
+        self.upload_artifacts(journal).await?;
         let report = journal.sync_report(profile.clone()).await?;
         report.validate()?;
         let expected: Vec<i64> = report.events.iter().map(|e| e.sequence).collect();
